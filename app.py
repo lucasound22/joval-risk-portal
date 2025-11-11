@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v16.0 – FULL ENTERPRISE
+# app.py – JOVAL WINES RISK PORTAL v16.1 – STREAMLIT CLOUD FIXED
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -14,13 +14,14 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # Tables
+    # TABLES (FIX: Add approver_notes to risks)
     c.execute("""CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
     c.execute("""CREATE TABLE IF NOT EXISTS users (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password TEXT, role TEXT, company_id INTEGER)""")
     c.execute("""CREATE TABLE IF NOT EXISTS risks (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER, title TEXT, description TEXT, category TEXT,
-                 likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, risk_score INTEGER, approver_email TEXT, approver_notes TEXT)""")
+                 likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, risk_score INTEGER, 
+                 approver_email TEXT, approver_notes TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS evidence (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, risk_id INTEGER, company_id INTEGER, file_name TEXT, upload_date TEXT, uploaded_by TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS nist_controls (
@@ -34,19 +35,19 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS custom_reports (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, filters TEXT, created_by TEXT, created_date TEXT)""")
 
-    # 4 Companies
+    # 4 COMPANIES
     companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
     c.executemany("INSERT OR IGNORE INTO companies (name) VALUES (?)", [(n,) for n in companies])
 
-    # Admins + Approvers
+    # ADMINS + APPROVERS
     hashed = hashlib.sha256("admin123".encode()).hexdigest()
     for i, comp in enumerate(companies, 1):
-        c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
+        c.execute("INSERT OR Ignore INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"admin@{comp.lower().replace(' ', '')}.com.au", hashed, "Admin", i))
-        c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
+        c.execute("INSERT OR Ignore INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"approver@{comp.lower().replace(' ', '')}.com.au", hashed, "Approver", i))
 
-    # 12 FULL NIST CONTROLS
+    # 12 NIST CONTROLS
     nist_data = [
         ("ID.SC-02", "Supply Chain Risk Management", "Establish and maintain a supply chain risk management program that identifies, assesses, and mitigates risks associated with third-party suppliers and vendors. Conduct regular risk assessments, require security attestations (e.g., SOC 2), and maintain vendor contracts with security clauses. Review SBOMs and enforce SLAs.", "Partial", "Annual review in progress", 1),
         ("PR.AC-01", "Identity Management", "Implement identity and access management controls including unique user IDs, multi-factor authentication (MFA), and role-based access control (RBAC). Regularly review user access and disable inactive accounts within 24 hours.", "Implemented", "Okta SSO + MFA enforced", 1),
@@ -63,7 +64,7 @@ def init_db():
     ]
     c.executemany("INSERT OR IGNORE INTO nist_controls VALUES (?, ?, ?, ?, ?, ?)", nist_data)
 
-    # 12 FULL PLAYBOOKS
+    # 12 PLAYBOOKS
     playbooks = {
         "Ransomware Response": [
             "Immediately isolate affected systems by disabling network connectivity (Wi-Fi, Ethernet, VPN)",
@@ -156,7 +157,7 @@ def init_db():
             c.execute("INSERT OR IGNORE INTO playbook_steps (playbook_name, step, checked, notes) VALUES (?, ?, ?, ?)",
                       (name, step, 0, ""))
 
-    # Vendors + NIST Survey
+    # VENDORS + NIST SURVEY
     vendors = [(1, "Pallet Co", "Medium", "2025-09-15", 1), (2, "Reefer Tech", "High", "2025-08-20", 1)]
     c.executemany("INSERT OR IGNORE INTO vendors VALUES (?, ?, ?, ?, ?)", vendors)
     questions = [
@@ -172,7 +173,7 @@ def init_db():
     ]
     c.executemany("INSERT OR IGNORE INTO vendor_questionnaire VALUES (?, ?, ?)", questions)
 
-    # Dummy Risks
+    # DUMMY RISKS (13 VALUES → 13 COLUMNS)
     risks = [
         (1, "Phishing Campaign Targeting Finance", "Multiple users reported suspicious emails", "DETECT", "High", "High", "Pending Approval", "finance@jovalwines.com.au", "2025-10-01", 9, "approver@jovalwines.com.au", ""),
         (2, "Unencrypted Laptop Lost in Transit", "Employee reported missing device with customer PII", "PROTECT", "Medium", "High", "Mitigated", "it@jovalfamilywines.com.au", "2025-09-28", 6, "approver@jovalfamilywines.com.au", "Device wiped remotely"),
@@ -184,10 +185,14 @@ def init_db():
     conn.commit()
     conn.close()
 
-# === INIT ===
+# === INIT ONCE ===
 if "db_init" not in st.session_state:
-    init_db()
-    st.session_state.db_init = True
+    try:
+        init_db()
+        st.session_state.db_init = True
+    except Exception as e:
+        st.error("Database initialization failed. Check logs.")
+        st.stop()
 
 st.set_page_config(page_title="Joval Risk Portal", layout="wide")
 st.markdown("""
@@ -202,7 +207,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal v16.0</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal v16.1</p></div>', unsafe_allow_html=True)
 
 # === LOGIN ===
 if "user" not in st.session_state:
@@ -231,7 +236,7 @@ c = conn.cursor()
 c.execute("SELECT name FROM companies WHERE id=?", (company_id,))
 company_name = c.fetchone()[0]
 
-# === SIDEBAR NAV ===
+# === SIDEBAR ===
 with st.sidebar:
     st.markdown(f"**{user[1].split('@')[0]}** • {company_name}")
     st.markdown("---")
@@ -251,7 +256,6 @@ if page == "Dashboard":
     with col2: st.markdown('<div class="metric-card"><h2>4</h2><p>Active Risks</p></div>', unsafe_allow_html=True)
     with col3: st.markdown('<div class="metric-card"><h2>42</h2><p>Evidence Files</p></div>', unsafe_allow_html=True)
 
-    # RACI x4
     for i, comp in enumerate(["Joval Wines", "Joval Family Wines", "BNV", "BAM"]):
         with st.expander(f"RACI Matrix – {comp}"):
             raci = pd.DataFrame([["Asset Inventory", "A", "R", "C", "I"], ["Backup", "R", "A", "I", "C"]], 
@@ -259,7 +263,6 @@ if page == "Dashboard":
             fig = px.imshow(raci, color_continuous_scale="Greys")
             st.plotly_chart(fig, use_container_width=True, key=f"raci_{i}")
 
-    # Active Risks (clickable)
     risks = pd.read_sql("SELECT id, title, status, risk_score, company_id FROM risks", conn)
     st.markdown("### Active Risks")
     for _, r in risks.iterrows():
@@ -279,7 +282,7 @@ elif page == "Log a new Risk":
         st.markdown(f"### Editing: {risk[2]}")
         with st.form("edit_risk"):
             status = st.selectbox("Status", ["Open", "Pending Approval", "Mitigated", "Closed"], index=["Open", "Pending Approval", "Mitigated", "Closed"].index(risk[7]))
-            notes = st.text_area("Approver Notes", risk[12])
+            notes = st.text_area("Approver Notes", risk[12] or "")
             if st.form_submit_button("Update"):
                 c.execute("UPDATE risks SET status=?, approver_notes=? WHERE id=?", (status, notes, risk[0]))
                 conn.commit()
@@ -312,7 +315,7 @@ elif page == "NIST Controls":
             c.execute("SELECT description, notes FROM nist_controls WHERE id=?", (row['id'],))
             desc, notes = c.fetchone()
             st.write(desc)
-            new_notes = st.text_area("Notes", notes, key=f"nist_{row['id']}")
+            new_notes = st.text_area("Notes", notes or "", key=f"nist_{row['id']}")
             if st.button("Save", key=f"save_nist_{row['id']}"):
                 c.execute("UPDATE nist_controls SET notes=? WHERE id=?", (new_notes, row['id']))
                 conn.commit()
@@ -347,7 +350,7 @@ elif page == "Playbooks":
                 with col1:
                     st.checkbox(s["step"], value=bool(s["checked"]), key=f"chk_{s['id']}")
                 with col2:
-                    st.text_input("", s["notes"], key=f"note_{s['id']}")
+                    st.text_input("", s["notes"] or "", key=f"note_{s['id']}")
                 if st.button("Save", key=f"save_pb_{s['id']}"):
                     c.execute("UPDATE playbook_steps SET checked=?, notes=? WHERE id=?", 
                               (int(st.session_state[f"chk_{s['id']}"]), st.session_state[f"note_{s['id']}"], s['id']))
@@ -356,13 +359,10 @@ elif page == "Playbooks":
 # === REPORTS ===
 elif page == "Reports":
     st.markdown("## Reports")
-    reports = ["Risk Register", "Compliance Scorecard", "Vendor Risk Summary"]
-    for r in reports:
-        if st.button(r, key=f"rep_{r}"):
-            if r == "Risk Register":
-                df = pd.read_sql("SELECT title, status, risk_score FROM risks", conn)
-            st.dataframe(df)
-            st.download_button("Download CSV", df.to_csv(index=False), f"{r}.csv", key=f"dl_{r}")
+    if st.button("Risk Register"):
+        df = pd.read_sql("SELECT title, status, risk_score FROM risks", conn)
+        st.dataframe(df)
+        st.download_button("Download CSV", df.to_csv(index=False), "Risk_Register.csv")
 
 # === VENDOR RISK ===
 elif page == "Vendor Risk":
@@ -373,7 +373,7 @@ elif page == "Vendor Risk":
             c.execute("SELECT question, answer FROM vendor_questionnaire WHERE vendor_id=?", (v.id,))
             for q_idx, (q, a) in enumerate(c.fetchall()):
                 key = f"vqa_{v.id}_{q_idx}"
-                new_a = st.text_input(q, a, key=key)
+                new_a = st.text_input(q, a or "", key=key)
                 if st.button("Save", key=f"vs_{key}"):
                     c.execute("UPDATE vendor_questionnaire SET answer=? WHERE vendor_id=? AND question=?", (new_a, v.id, q))
                     conn.commit()
@@ -401,4 +401,4 @@ elif page == "Admin Panel":
                 st.success("Updated")
                 st.session_state.edit_user = None
 
-st.markdown("---\n© 2025 Joval Wines | Risk Management Portal v16.0")
+st.markdown("---\n© 2025 Joval Wines | Risk Management Portal v16.1")
