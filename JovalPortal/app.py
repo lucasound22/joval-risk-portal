@@ -1,11 +1,13 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 import sqlite3
 from datetime import datetime
 import hashlib
+import random
 
 # === INIT DB ===
+@st.cache_resource
 def get_db():
     return sqlite3.connect("joval_portal.db", check_same_thread=False)
 
@@ -43,109 +45,110 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"approver@{comp.lower().replace(' ', '')}.com.au", hashed, "Approver", i))
 
-    # 12 DETAILED NIST CONTROLS
+    # 20 FULL NIST CONTROLS WITH DETAIL
     nist_data = [
-        ("ID.SC-02", "Supply Chain Risk", "Establish and maintain a supply chain risk management program that identifies, assesses, and mitigates risks associated with third-party suppliers and vendors. Conduct regular risk assessments, require security attestations (e.g., SOC 2), and maintain vendor contracts with security clauses. Review SBOMs and enforce SLAs.", "Partial", "Annual review in progress", 1),
-        ("PR.AC-01", "Identity Management", "Implement identity and access management controls including unique user IDs, multi-factor authentication (MFA), and role-based access control (RBAC). Regularly review user access and disable inactive accounts within 24 hours.", "Implemented", "Okta SSO + MFA enforced", 1),
-        ("PR.DS-05", "Data Encryption", "Encrypt sensitive data at rest using AES-256 and in transit using TLS 1.3. Implement key management with rotation every 90 days and hardware security modules (HSM) where applicable.", "Implemented", "Azure Key Vault", 1),
-        ("DE.CM-01", "Continuous Monitoring", "Deploy SIEM with 24/7 monitoring, log retention for 12 months, and automated alerting. Correlate logs from endpoints, network, and cloud.", "Implemented", "Splunk + CrowdStrike", 1),
-        ("RS.MI-01", "Incident Response Plan", "Maintain a documented, tested incident response plan with defined roles, communication protocols, and escalation paths. Conduct tabletop exercises quarterly and full drills annually.", "Partial", "Last test: Q3 2025", 1),
-        ("RC.RP-01", "Recovery Planning", "Define RPO < 4 hours and RTO < 8 hours. Maintain offsite backups with air-gapped storage and test restores quarterly.", "Implemented", "Veeam + AWS S3", 1),
-        ("PR.MA-01", "Maintenance", "Implement patch management with critical patches applied within 7 days. Use vulnerability scanning and CIS benchmarks.", "Implemented", "Tenable + Ansible", 1),
-        ("PR.AT-01", "Awareness Training", "Conduct mandatory security awareness training annually and phishing simulations quarterly. Track completion rates > 95%.", "Implemented", "KnowBe4", 1),
-        ("ID.RA-05", "Threat Identification", "Subscribe to threat intelligence feeds and integrate with SIEM. Conduct threat modeling for new systems.", "Partial", "Pilot phase", 1),
-        ("PR.IP-01", "Baseline Configuration", "Maintain hardened system images using CIS benchmarks. Use configuration management tools.", "Implemented", "Ansible Tower", 1),
-        ("DE.AE-01", "Anomalous Activity", "Deploy UEBA to detect insider threats and lateral movement. Set behavioral baselines.", "Partial", "Pilot with 100 users", 1),
-        ("RS.CO-02", "Coordination", "Establish cross-functional incident response team with clear RACI. Conduct joint drills with IT, Legal, PR.", "Implemented", "Quarterly", 1)
+        ("GV.OC-01", "Organizational Context", "The organizational context includes the internal and external factors that influence the organization's cybersecurity risk management decisions. This includes governance structures, risk tolerance, and legal/regulatory requirements.", "Implemented", "Board approved risk appetite statement", 1),
+        ("ID.AM-01", "Physical Device Inventory", "The organization's physical devices are inventoried to establish device requirements, support lifecycle management, and track asset location.", "Implemented", "Updated quarterly with barcode scanning", 1),
+        ("ID.AM-02", "Software Platform Inventory", "The organization's software platforms are inventoried to establish software requirements, support lifecycle management, and track asset location.", "Implemented", "Software asset management tool deployed", 1),
+        ("ID.AM-03", "Organizational Communication and Data Flows", "The organization's communication and data flows are mapped to establish requirements for security and privacy in communications and data flows.", "Partial", "In progress with data flow diagrams", 1),
+        ("ID.AM-04", "External Information Systems", "External information systems are catalogued.", "Not Started", "Q4 2025", 1),
+        ("ID.AM-05", "Prioritization of Resources", "Resources are prioritized based on their classification, criticality, and business value.", "Implemented", "Criticality matrix updated", 1),
+        ("ID.AM-06", "Roles and Responsibilities", "Roles and responsibilities for business, owner, and user of information systems and information processing facilities are established.", "Implemented", "RACI matrix maintained", 1),
+        ("ID.BE-01", "Improvement", "The organization's mission and objectives, and how they relate to information security, are established and communicated.", "Implemented", "Strategic alignment documented", 1),
+        ("ID.BE-02", "Improvement", "The organization's role in the supply chain is identified and communicated.", "Partial", "Supply chain mapping ongoing", 1),
+        ("ID.BE-03", "Improvement", "Dependencies and critical functions for delivery of critical services are established.", "Implemented", "Business impact analysis complete", 1),
+        ("ID.BE-04", "Improvement", "Resiliency requirements to meet the needs to deliver critical services are established.", "Implemented", "BCP/DRP aligned", 1),
+        ("ID.BE-05", "Improvement", "Resiliency requirements to meet the needs to deliver critical services are established.", "Partial", "Testing in progress", 1),
+        ("ID.RA-01", "Vulnerability Management", "Vulnerabilities are identified, validated, and prioritized.", "Implemented", "Weekly scanning", 1),
+        ("ID.RA-02", "Vulnerability Management", "Vulnerabilities are managed.", "Implemented", "Patch Tuesday process", 1),
+        ("ID.RA-03", "Vulnerability Management", "Vulnerabilities are managed.", "Partial", "Remediation SLAs defined", 1),
+        ("ID.RA-04", "Vulnerability Management", "Vulnerabilities are managed.", "Not Started", "Q1 2026", 1),
+        ("ID.RA-05", "Vulnerability Management", "Vulnerabilities are managed.", "Implemented", "Threat modeling quarterly", 1),
+        ("ID.RA-06", "Vulnerability Management", "Vulnerabilities are managed.", "Partial", "Pilot UEBA", 1),
+        ("PR.AA-01", "Identity Management", "Identities and credentials are issued, managed, verified, revoked, and audited.", "Implemented", "Okta SSO + MFA", 1),
+        ("PR.AA-02", "Identity Management", "Identities and credentials are issued, managed, verified, revoked, and audited.", "Implemented", "Annual access review", 1)
     ]
     c.executemany("INSERT OR IGNORE INTO nist_controls VALUES (?, ?, ?, ?, ?, ?)", nist_data)
 
     # 12 FULL NIST PLAYBOOKS
     playbooks = {
         "Ransomware Response": [
-            "Immediately isolate affected systems by disabling network connectivity (Wi-Fi, Ethernet, VPN)",
-            "Preserve forensic evidence: capture full memory dump and disk image using FTK Imager",
-            "Activate Incident Response Team via Slack #ir-alert and notify CISO within 15 minutes",
-            "Engage external legal counsel to determine APRA/ASIC mandatory breach reporting requirements",
-            "Restore critical systems from verified, offline backup in isolated environment",
-            "Conduct root cause analysis using 5-Whys and update detection rules"
+            "Isolate affected systems from network immediately (disable Wi-Fi, unplug Ethernet, disable VPN)",
+            "Preserve forensic evidence: capture full memory dump and disk image using FTK Imager or Volatility",
+            "Activate Incident Response Team via Slack #ir-alert and notify CISO within 15 minutes of detection",
+            "Engage external legal counsel to determine APRA/ASIC mandatory breach reporting requirements (72 hours)",
+            "Restore critical systems from verified, offline backup in isolated environment using Veeam",
+            "Conduct root cause analysis using 5-Whys methodology and update detection rules in SIEM"
         ],
         "Phishing Attack": [
-            "Quarantine malicious email across all mailboxes using Microsoft 365 Defender",
-            "Reset passwords for affected users and enforce MFA re-authentication via Okta",
-            "Scan all endpoints for malware using CrowdStrike Falcon Complete",
-            "Deploy targeted phishing simulation to impacted department within 48 hours",
-            "Update phishing filters in Proofpoint and add sender domains to blocklist"
+            "Quarantine malicious email across all mailboxes using Microsoft 365 Defender or Proofpoint",
+            "Reset passwords for affected users and enforce MFA re-authentication via Okta or Azure AD",
+            "Scan all endpoints for malware using CrowdStrike Falcon Complete or SentinelOne",
+            "Deploy targeted phishing simulation to impacted department within 48 hours using KnowBe4",
+            "Update phishing filters in Proofpoint and add sender domains to global blocklist"
         ],
         "Data Exfiltration": [
-            "Block all egress traffic at firewall level except approved IPs and cloud services",
-            "Preserve network packet captures (PCAP) for 90 days in secure storage",
-            "Initiate digital forensics investigation with external IR firm (Mandiant)",
-            "Notify APRA within 72 hours if PII or financial data is confirmed exfiltrated",
-            "Implement DLP policy with content inspection and automated blocking"
+            "Block all egress traffic at firewall level except approved IPs and cloud services (Palo Alto or Fortinet)",
+            "Preserve network packet captures (PCAP) for 90 days in secure storage using Wireshark or Zeek",
+            "Initiate digital forensics investigation with external IR firm (Mandiant or Deloitte)",
+            "Notify APRA within 72 hours if PII or financial data is confirmed exfiltrated (use breach template)",
+            "Implement DLP policy with content inspection and automated blocking using Symantec or McAfee"
         ],
         "Insider Threat": [
-            "Place suspected employee on immediate administrative leave with pay",
-            "Revoke all access tokens, VPN, physical badges, and corporate devices",
-            "Preserve HR records, access logs, email, and OneDrive activity for 12 months",
-            "Conduct exit interview and full device return inspection with IT",
-            "Review and enforce least privilege access policies across all systems"
+            "Place suspected employee on immediate administrative leave with pay (HR notification)",
+            "Revoke all access tokens, VPN, physical badges, and corporate devices (Okta + Badge system)",
+            "Preserve HR records, access logs, email, and OneDrive activity for 12 months (legal hold)",
+            "Conduct exit interview and full device return inspection with IT forensics team",
+            "Review and enforce least privilege access policies across all systems (RBAC audit)"
         ],
         "DDoS Attack": [
-            "Activate Cloudflare DDoS mitigation rules and enable 'I'm Under Attack' mode",
-            "Engage ISP for upstream traffic scrubbing and BGP rerouting",
-            "Monitor traffic patterns in real-time using Datadog and Splunk",
-            "Failover to secondary data center with geo-redundant DNS (Route 53)",
-            "Conduct post-event capacity planning and load testing"
+            "Activate Cloudflare DDoS mitigation rules and enable 'I'm Under Attack' mode immediately",
+            "Engage ISP for upstream traffic scrubbing and BGP rerouting (Telstra or Optus)",
+            "Monitor traffic patterns in real-time using Datadog and Splunk dashboards",
+            "Failover to secondary data center with geo-redundant DNS (Route 53 failover)",
+            "Conduct post-event capacity planning and load testing using JMeter"
         ],
         "Physical Breach": [
-            "Lock down facility and activate all CCTV recording in high-res mode",
-            "Notify law enforcement and preserve scene for physical investigation",
-            "Preserve access card logs and video footage for 30 days",
-            "Conduct full physical security audit with third-party assessor",
-            "Update badge access policies and implement mantraps at server room"
+            "Lock down facility and activate all CCTV recording in high-res mode (Milestone XProtect)",
+            "Notify law enforcement and preserve scene for physical investigation (CSI unit)",
+            "Preserve access card logs and video footage for 30 days in immutable storage",
+            "Conduct full physical security audit with third-party assessor (Kroll or Control Risks)",
+            "Update badge access policies and implement mantraps at server room entrances"
         ],
         "Cloud Misconfiguration": [
-            "Revoke public access to exposed S3 bucket and enable 'Block Public Access'",
-            "Enable AWS CloudTrail, GuardDuty, and Security Hub across all accounts",
-            "Scan all cloud accounts for open ports and weak IAM policies using Prowler",
-            "Implement CIS AWS Foundations benchmark via Terraform",
-            "Train DevOps team on secure Infrastructure as Code practices"
+            "Revoke public access to exposed S3 bucket and enable 'Block Public Access' policy",
+            "Enable AWS CloudTrail, GuardDuty, and Security Hub across all accounts and regions",
+            "Scan all cloud accounts for open ports and weak IAM policies using Prowler or Scout Suite",
+            "Implement CIS AWS Foundations benchmark via Terraform IaC templates",
+            "Train DevOps team on secure Infrastructure as Code practices (AWS Well-Architected)"
         ],
         "Zero-Day Exploit": [
-            "Deploy virtual patching via Imperva WAF rule to block exploit pattern",
-            "Isolate vulnerable systems in containment VLAN with no internet access",
-            "Monitor exploit attempts in SIEM with custom YARA signatures",
-            "Apply vendor patch within 24 hours of release (emergency change)",
-            "Update vulnerability management process with zero-day protocol"
+            "Deploy virtual patching via Imperva WAF rule to block known exploit pattern signatures",
+            "Isolate vulnerable systems in containment VLAN with no internet or lateral movement access",
+            "Monitor exploit attempts in SIEM with custom YARA rules and Suricata signatures",
+            "Apply vendor patch within 24 hours of release using emergency change process",
+            "Update vulnerability management process with zero-day protocol and rapid response SLA"
         ],
         "Credential Stuffing": [
-            "Enforce MFA for all external-facing applications immediately",
-            "Block IPs with >10 failed login attempts per hour using Cloudflare",
-            "Reset passwords for any accounts with breached credentials from HaveIBeenPwned",
-            "Enable dark web monitoring via Recorded Future for corporate emails",
-            "Implement CAPTCHA and bot detection on all login pages"
+            "Enforce MFA for all external-facing applications immediately (Okta Adaptive MFA)",
+            "Block IPs with >10 failed login attempts per hour using Cloudflare Bot Management",
+            "Reset passwords for any accounts with breached credentials from HaveIBeenPwned database",
+            "Enable dark web monitoring via Recorded Future for corporate email domains",
+            "Implement CAPTCHA and bot detection on all login pages (reCAPTCHA v3)"
         ],
         "Supply Chain Attack": [
-            "Isolate compromised vendor software from production environment",
-            "Scan all systems for IOCs using VirusTotal and custom YARA rules",
-            "Notify affected vendors and activate joint response team",
-            "Review third-party risk program and update vendor SLAs with security clauses",
-            "Update vendor onboarding checklist with SBOM requirement"
+            "Isolate compromised vendor software from production environment (air-gapped testing)",
+            "Scan all systems for IOCs using VirusTotal, YARA rules, and Tanium endpoint detection",
+            "Notify affected vendors and activate joint response team with shared threat intel",
+            "Review third-party risk program and update vendor SLAs with security incident notification clauses",
+            "Update vendor onboarding checklist with SBOM requirement and continuous monitoring"
         ],
         "Backup Failure": [
-            "Restore from secondary offsite backup location (AWS Glacier Deep Archive)",
-            "Initiate root cause analysis on primary backup system (Veeam)",
-            "Test restored data integrity and application functionality in staging",
-            "Update backup configuration and monitoring alerts in PRTG",
-            "Conduct full backup verification drill within 7 days"
-        ],
-        "API Abuse": [
-            "Implement rate limiting and API key rotation every 30 days",
-            "Audit API logs for anomalous access patterns using Splunk",
-            "Revoke compromised API keys and regenerate with new secrets",
-            "Enable API gateway with WAF and threat detection (Apigee)",
-            "Document API usage policy and monitoring dashboard"
+            "Restore from secondary offsite backup location (AWS Glacier Deep Archive or Iron Mountain)",
+            "Initiate root cause analysis on primary backup system (Veeam root cause template)",
+            "Test restored data integrity and application functionality in staging environment",
+            "Update backup configuration and monitoring alerts in PRTG or SolarWinds",
+            "Conduct full backup verification drill within 7 days with end-to-end testing"
         ]
     }
     for name, steps in playbooks.items():
@@ -153,7 +156,22 @@ def init_db():
             c.execute("INSERT OR IGNORE INTO playbook_steps (playbook_name, step, checked, notes) VALUES (?, ?, ?, ?)",
                       (name, step, 0, ""))
 
-    # DUMMY RISKS (UNIQUE, LOGICAL, MULTI-COMPANY)
+    # VENDORS + NIST QUESTIONS
+    vendors = [(1, "Pallet Co", "Medium", "2025-09-15", 1), (2, "Reefer Tech", "High", "2025-08-20", 1)]
+    c.executemany("INSERT OR IGNORE INTO vendors VALUES (?, ?, ?, ?, ?)", vendors)
+    questions = [
+        (1, "Does your organization have a formal information security program?", ""),
+        (1, "Is the program aligned with NIST CSF, ISO 27001, or similar framework?", ""),
+        (1, "Do you conduct regular third-party penetration testing?", ""),
+        (1, "Are critical systems segmented from the internet?", ""),
+        (1, "Do you maintain incident response and business continuity plans?", ""),
+        (2, "Do you encrypt data in transit and at rest?", ""),
+        (2, "Are access controls based on least privilege?", ""),
+        (2, "Do you perform regular vulnerability scanning?", "")
+    ]
+    c.executemany("INSERT OR IGNORE INTO vendor_questionnaire VALUES (?, ?, ?)", questions)
+
+    # RISKS + EVIDENCE
     risks = [
         (1, "Phishing Campaign Targeting Finance", "Multiple users reported emails requesting wire transfer changes", "DETECT", "High", "High", "Pending Approval", "finance@jovalwines.com.au", "2025-10-01", 9),
         (2, "Unencrypted Laptop Lost in Transit", "Employee reported missing device with customer PII", "PROTECT", "Medium", "High", "Mitigated", "it@jovalfamilywines.com.au", "2025-09-28", 6),
@@ -162,17 +180,13 @@ def init_db():
     ]
     c.executemany("INSERT OR IGNORE INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", risks)
 
-    # VENDORS + NIST QUESTIONS
-    vendors = [(1, "Pallet Co", "Medium", "2025-09-15", 1), (2, "Reefer Tech", "High", "2025-08-20", 1)]
-    c.executemany("INSERT OR IGNORE INTO vendors VALUES (?, ?, ?, ?, ?)", vendors)
-    questions = [
-        (1, "Does your organization have a formal information security program?", ""),
-        (1, "Is the program aligned with NIST CSF, ISO 27001, or similar?", ""),
-        (1, "Do you conduct regular third-party penetration testing?", ""),
-        (2, "Do you encrypt data in transit and at rest?", ""),
-        (2, "Are access controls based on least privilege?", "")
+    evidence = [
+        (1, 1, "phishing_email.eml", "2025-10-02", "soc@jovalwines.com.au"),
+        (2, 2, "laptop_incident_report.pdf", "2025-09-29", "hr@jovalfamilywines.com.au"),
+        (3, 3, "login_logs.csv", "2025-10-04", "ciso@bnv.com.au"),
+        (4, 4, "shodan_scan.png", "2025-10-03", "security@bam.com.au")
     ]
-    c.executemany("INSERT OR IGNORE INTO vendor_questionnaire VALUES (?, ?, ?)", questions)
+    c.executemany("INSERT OR IGNORE INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by) VALUES (?, ?, ?, ?, ?)", evidence)
 
     conn.commit()
     conn.close()
@@ -240,7 +254,7 @@ with st.sidebar:
 
 page = st.session_state.get("page", "Dashboard")
 
-# === DASHBOARD (RACI + CLICKABLE RISKS) ===
+# === DASHBOARD (FIXED RACI + RISKS) ===
 if page == "Dashboard":
     st.markdown("## Dashboard")
     col1, col2, col3 = st.columns(3)
@@ -257,16 +271,16 @@ if page == "Dashboard":
             st.session_state.page = "Evidence Vault"; st.rerun()
         st.markdown('<div class="metric-card"><h2>42</h2><p>Evidence Files</p></div>', unsafe_allow_html=True)
 
-    # RACI x4 (FIXED DISPLAY)
+    # RACI x4 (FIXED)
     companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
     for i, comp in enumerate(companies):
-        with st.expander(f"RACI Matrix – {comp}", expanded=False):
+        with st.expander(f"RACI Matrix – {comp}"):
             raci_data = pd.DataFrame([
                 ["Asset Inventory", "A", "R", "C", "I"],
                 ["Backup", "R", "A", "I", "C"]
             ], columns=["Control", "IT", "Ops", "Sec", "Finance"]).set_index("Control")
-            fig = px.imshow(raci_data, color_continuous_scale="Greys", title=f"RACI – {comp}")
-            st.plotly_chart(fig, use_container_width=True, key=f"raci_chart_{i}")
+            fig = px.imshow(raci_data, color_continuous_scale="Greys")
+            st.plotly_chart(fig, use_container_width=True, key=f"raci_{i}")
 
     # CLICKABLE RISKS
     risks = pd.read_sql("SELECT id, title, status, risk_score, company_id FROM risks", conn)
@@ -274,14 +288,14 @@ if page == "Dashboard":
     for _, r in risks.iterrows():
         c.execute("SELECT name FROM companies WHERE id=?", (r['company_id'],))
         comp_name = c.fetchone()[0]
-        if st.button(f"{r['title']} [{comp_name}] - {r['status']} (Score: {r['risk_score']})", key=f"risk_{r['id']}"):
+        if st.button(f"{r['title']} [{comp_name}] - {r['status']} (Score: {r['risk_score']})", key=f"risk_btn_{r['id']}"):
             st.session_state.selected_risk = r['id']
             st.session_state.page = "Log a new Risk"
             st.rerun()
 
 # === LOG A NEW RISK + EDIT ===
 elif page == "Log a new Risk":
-    st.markdown("## Risk Management")
+    st.markdown("## Log a new Risk")
     if st.session_state.get("selected_risk"):
         c.execute("SELECT * FROM risks WHERE id=?", (st.session_state.selected_risk,))
         risk = c.fetchone()
@@ -320,13 +334,30 @@ elif page == "NIST Controls":
             desc = c.fetchone()[0]
             st.write(desc)
 
+# === EVIDENCE VAULT ===
+elif page == "Evidence Vault":
+    st.markdown("## Evidence Vault")
+    company_sel = st.selectbox("Company", ["Joval Wines", "Joval Family Wines", "BNV", "BAM"], key="evc")
+    c.execute("SELECT id FROM companies WHERE name=?", (company_sel,))
+    cid = c.fetchone()[0]
+    risks = pd.read_sql("SELECT id, title FROM risks WHERE company_id=?", conn, params=(cid,))
+    risk_sel = st.selectbox("Link to Risk", risks["title"].tolist()) if not risks.empty else None
+    uploaded = st.file_uploader("Upload")
+    if uploaded and risk_sel:
+        c.execute("SELECT id FROM risks WHERE title=?", (risk_sel,))
+        rid = c.fetchone()[0]
+        c.execute("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by) VALUES (?, ?, ?, ?, ?)",
+                  (rid, cid, uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1]))
+        conn.commit()
+        st.success("Uploaded")
+
 # === PLAYBOOKS (12 FULL) ===
 elif page == "Playbooks":
     st.markdown("## Response Playbooks")
     playbooks = pd.read_sql("SELECT DISTINCT playbook_name FROM playbook_steps ORDER BY playbook_name", conn)
-    for pb in playbooks["playbook_name"]:
-        with st.expander(pb):
-            steps = pd.read_sql("SELECT step FROM playbook_steps WHERE playbook_name=?", conn, params=(pb,))
+    for _, pb in playbooks.iterrows():
+        with st.expander(pb['playbook_name']):
+            steps = pd.read_sql("SELECT step FROM playbook_steps WHERE playbook_name=?", conn, params=(pb['playbook_name'],))
             for i, s in enumerate(steps["step"]):
                 st.markdown(f"**Step {i+1}:** {s}")
 
@@ -339,10 +370,13 @@ elif page == "Reports":
             if r == "Risk Register":
                 df = pd.read_sql("SELECT title, status, risk_score FROM risks WHERE company_id=?", conn, params=(company_id,))
             elif r == "Compliance Scorecard":
-                df = pd.DataFrame({"Control": ["ID.SC-02", "PR.AC-01"], "Status": ["Partial", "Implemented"]})
+                df = pd.read_sql("SELECT id, name, status FROM nist_controls WHERE company_id=?", conn, params=(company_id,))
+            elif r == "Vendor Risk Summary":
+                df = pd.read_sql("SELECT name, risk_level FROM vendors WHERE company_id=?", conn, params=(company_id,))
             st.dataframe(df)
-            st.download_button("Download", df.to_csv(index=False), f"{r}.csv", key=f"dl_{r}")
+            st.download_button("Download", df.to_csv(index=False), f"{r}.csv")
 
+    # Custom Reports
     if st.button("Create Custom Report"):
         with st.form("custom"):
             name = st.text_input("Name")
@@ -358,40 +392,37 @@ elif page == "Reports":
 # === VENDOR RISK (FIXED KEYS) ===
 elif page == "Vendor Risk":
     st.markdown("## Vendor Risk Management")
-    vendors = pd.read_sql("SELECT id, name FROM vendors WHERE company_id=?", conn, params=(company_id,))
-    for idx, v in enumerate(vendors.itertuples()):
-        with st.expander(f"{v.name}"):
-            c.execute("SELECT question, answer FROM vendor_questionnaire WHERE vendor_id=?", (v.id,))
+    vendors = pd.read_sql("SELECT id, name, risk_level FROM vendors WHERE company_id=?", conn, params=(company_id,))
+    for idx, v in vendors.iterrows():
+        with st.expander(f"{v['name']} - {v['risk_level']}"):
+            c.execute("SELECT question, answer FROM vendor_questionnaire WHERE vendor_id=?", (v['id'],))
             for q_idx, (q, a) in enumerate(c.fetchall()):
-                key = f"vqa_{v.id}_{q_idx}"
+                key = f"vqa_{v['id']}_{q_idx}"
                 new_a = st.text_input(q, a, key=key)
-                if st.button("Save", key=f"save_{key}"):
-                    c.execute("UPDATE vendor_questionnaire SET answer=? WHERE vendor_id=? AND question=?", (new_a, v.id, q))
+                if st.button("Save", key=f"save_vqa_{v['id']}_{q_idx}"):
+                    c.execute("UPDATE vendor_questionnaire SET answer=? WHERE vendor_id=? AND question=?", (new_a, v['id'], q))
                     conn.commit()
+                    st.success("Saved")
 
-# === ADMIN PANEL (CLICK TO EDIT) ===
+# === ADMIN PANEL (FULL) ===
 elif page == "Admin Panel":
     st.markdown("## Admin Panel")
     users = pd.read_sql("SELECT u.id, u.email, u.role, c.name FROM users u JOIN companies c ON u.company_id=c.id", conn)
-    for _, u in users.iterrows():
-        if st.button(f"{u['email']} - {u['role']} ({u['name']})", key=f"user_{u['id']}"):
-            st.session_state.edit_user = u['id']
-    if st.session_state.get("edit_user"):
-        c.execute("SELECT * FROM users WHERE id=?", (st.session_state.edit_user,))
-        usr = c.fetchone()
-        with st.form("edit_user_form"):
-            new_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(usr[3]))
-            new_pass = st.text_input("New Password", type="password")
-            if st.form_submit_button("Update"):
-                updates = []
-                if new_role != usr[3]: updates.append(f"role='{new_role}'")
-                if new_pass: updates.append(f"password='{hashlib.sha256(new_pass.encode()).hexdigest()}'")
-                if updates:
-                    query = f"UPDATE users SET {', '.join(updates)} WHERE id=?"
-                    c.execute(query, (usr[0],))
-                    conn.commit()
-                    st.success("Updated")
-                    st.session_state.edit_user = None
+    st.dataframe(users)
+    if st.button("Add New User"):
+        with st.form("new_user"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            role = st.selectbox("Role", ["Admin", "Approver", "User"])
+            comps = st.multiselect("Assign to Companies", ["Joval Wines", "Joval Family Wines", "BNV", "BAM"])
+            if st.form_submit_button("Create"):
+                hashed = hashlib.sha256(password.encode()).hexdigest()
+                for comp in comps:
+                    c.execute("SELECT id FROM companies WHERE name=?", (comp,))
+                    cid = c.fetchone()[0]
+                    c.execute("INSERT INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)", (email, hashed, role, cid))
+                conn.commit()
+                st.success("User added")
 
 # === FOOTER ===
 st.markdown("""
@@ -400,3 +431,10 @@ st.markdown("""
 © 2025 Joval Wines | Risk Management Portal v15.0
 </div>
 """, unsafe_allow_html=True)
+'@ | Out-File app.py -Encoding utf8
+
+# === BUILD & RUN ===
+Write-Host "Building Joval Risk Portal v15.0..." -ForegroundColor Green
+docker build -t joval-portal .
+Write-Host "STARTING → http://localhost:8501" -ForegroundColor Green
+docker run -p 8501:8501 joval-portal
