@@ -1,165 +1,102 @@
+# app.py – v16.0 STREAMLIT CLOUD READY
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import sqlite3
 from datetime import datetime
 import hashlib
-import os
-
-DB_PATH = "joval_portal.db"
 
 # === INIT DB ===
 def get_db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    return sqlite3.connect("joval_portal.db", check_same_thread=False)
 
 def init_db():
-    """Initialise DB and seed required baseline data safely."""
     conn = get_db()
-    cur = conn.cursor()
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password TEXT, role TEXT, company_id INTEGER)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS risks (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER, title TEXT, description TEXT, category TEXT,
+                 likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, risk_score INTEGER, approver_email TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS evidence (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, risk_id INTEGER, company_id INTEGER, file_name TEXT, upload_date TEXT, uploaded_by TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS nist_controls (
+                 id TEXT PRIMARY KEY, name TEXT, description TEXT, status TEXT, notes TEXT, company_id INTEGER)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS playbook_steps (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, playbook_name TEXT, step TEXT, checked INTEGER, notes TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS vendors (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, risk_level TEXT, last_assessment TEXT, company_id INTEGER)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS vendor_questionnaire (
+                 vendor_id INTEGER, question TEXT, answer TEXT)""")
 
-    # tables
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS companies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE,
-            password TEXT,
-            role TEXT,
-            company_id INTEGER
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS risks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_id INTEGER,
-            title TEXT,
-            description TEXT,
-            category TEXT,
-            likelihood TEXT,
-            impact TEXT,
-            status TEXT,
-            submitted_by TEXT,
-            submitted_date TEXT,
-            risk_score INTEGER,
-            approver_email TEXT,
-            approver_notes TEXT
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS evidence (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            risk_id INTEGER,
-            company_id INTEGER,
-            file_name TEXT,
-            upload_date TEXT,
-            uploaded_by TEXT
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS nist_controls (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            description TEXT,
-            status TEXT,
-            notes TEXT,
-            company_id INTEGER
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS playbook_steps (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            playbook_name TEXT,
-            step TEXT,
-            checked INTEGER,
-            notes TEXT
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS vendors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            risk_level TEXT,
-            last_assessment TEXT,
-            company_id INTEGER
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS vendor_questionnaire (
-            vendor_id INTEGER,
-            question TEXT,
-            answer TEXT
-        )
-    """)
+    # Companies
+    companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
+    c.executemany("INSERT OR IGNORE INTO companies (name) VALUES (?)", [(n,) for n in companies])
 
-    # seed companies (4)
-    seed_companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
-    for comp in seed_companies:
-        cur.execute("INSERT OR IGNORE INTO companies (name) VALUES (?)", (comp,))
+    # Users
+    hashed = hashlib.sha256("admin123".encode()).hexdigest()
+    for i, comp in enumerate(companies, 1):
+        c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
+                  (f"admin@{comp.lower().replace(' ', '')}.com.au", hashed, "Admin", i))
 
-    # seed admin + approver per company (use a simple hashed password)
-    default_pass = "admin123"
-    hashed = hashlib.sha256(default_pass.encode()).hexdigest()
-    cur.execute("SELECT id, name FROM companies")
-    rows = cur.fetchall()
-    for row in rows:
-        cid = row[0]
-        cname = row[1]
-        admin_email = f"admin@{cname.lower().replace(' ', '')}.com.au"
-        approver_email = f"approver@{cname.lower().replace(' ', '')}.com.au"
-        cur.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
-                    (admin_email, hashed, "Admin", cid))
-        cur.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
-                    (approver_email, hashed, "Approver", cid))
+    # NIST Controls
+    nist_data = [
+        ("ID.SC-02", "Supply Chain Risk", "Establish supply chain risk management program with vendor assessments, SOC 2, and SBOMs.", "Partial", "", 1),
+        ("PR.AC-01", "Identity Management", "Implement MFA, RBAC, and quarterly access reviews.", "Implemented", "", 1),
+        ("PR.DS-05", "Data Encryption", "Encrypt data at rest (AES-256) and in transit (TLS 1.3).", "Implemented", "", 1),
+        ("DE.CM-01", "Continuous Monitoring", "Deploy SIEM with 24/7 alerting and log correlation.", "Implemented", "", 1),
+        ("RS.MI-01", "Incident Response", "Maintain tested IR plan with quarterly tabletop exercises.", "Partial", "", 1),
+        ("RC.RP-01", "Recovery Planning", "RPO < 4h, RTO < 8h, air-gapped backups.", "Implemented", "", 1)
+    ]
+    c.executemany("INSERT OR IGNORE INTO nist_controls VALUES (?, ?, ?, ?, ?, ?)", nist_data)
 
-    # Optional: seed a sample risk to make the dashboard show clickable items
-    cur.execute("SELECT id FROM companies LIMIT 1")
-    first_c = cur.fetchone()
-    if first_c:
-        first_cid = first_c[0]
-        cur.execute("""
-            INSERT OR IGNORE INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score, approver_email)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (first_cid, "Sample Risk: Test entry", "This is a seeded risk for demo", "IDENTIFY", "Medium", "Medium",
-              "Open", "admin", datetime.now().strftime("%Y-%m-%d"), 4, f"approver@{seed_companies[0].lower().replace(' ', '')}.com.au"))
+    # Playbooks (12)
+    playbooks = {
+        "Ransomware Response": ["Isolate systems", "Preserve evidence", "Activate IR team", "Restore backup"],
+        "Phishing Attack": ["Quarantine email", "Reset passwords", "Scan endpoints", "Update filters"],
+        "Data Exfiltration": ["Block egress", "Preserve logs", "Notify APRA", "Enhance DLP"],
+        "Insider Threat": ["Revoke access", "Preserve logs", "HR investigation", "Update policy"],
+        "DDoS Attack": ["Activate Cloudflare", "Engage ISP", "Failover", "Capacity plan"],
+        "Physical Breach": ["Lock facility", "Preserve CCTV", "Audit access", "Update badges"],
+        "Cloud Misconfig": ["Block public S3", "Enable GuardDuty", "Scan with Prowler", "Train DevOps"],
+        "Zero-Day Exploit": ["Virtual patch", "Isolate system", "Monitor IOCs", "Apply patch"],
+        "Credential Stuffing": ["Enforce MFA", "Block IPs", "Reset passwords", "Dark web scan"],
+        "Supply Chain Attack": ["Isolate software", "Scan IOCs", "Notify vendor", "Update SLA"],
+        "Backup Failure": ["Restore from secondary", "RCA on Veeam", "Test integrity", "Update config"],
+        "API Abuse": ["Rate limit", "Audit logs", "Rotate keys", "Enable WAF"]
+    }
+    for name, steps in playbooks.items():
+        for step in steps:
+            c.execute("INSERT OR IGNORE INTO playbook_steps (playbook_name, step, checked, notes) VALUES (?, ?, ?, ?)",
+                      (name, step, 0, ""))
+
+    # Risks
+    risks = [
+        (1, "Phishing Campaign", "Finance targeted", "DETECT", "High", "High", "Pending Approval", "finance@jovalwines.com.au", "2025-10-01", 9),
+        (2, "Laptop Lost", "Customer PII", "PROTECT", "Medium", "High", "Mitigated", "it@jovalfamilywines.com.au", "2025-09-28", 6),
+        (3, "Suspicious Login", "CEO account", "IDENTIFY", "High", "Medium", "Pending Approval", "ciso@bnv.com.au", "2025-10-03", 6),
+        (4, "Vendor Portal Open", "Shodan alert", "PROTECT", "High", "High", "Open", "security@bam.com.au", "2025-10-02", 9)
+    ]
+    c.executemany("INSERT OR IGNORE INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", risks)
 
     conn.commit()
     conn.close()
 
-# ensure DB exists / init
-if not os.path.exists(DB_PATH):
+# === INIT ===
+if "db_init" not in st.session_state:
     init_db()
-else:
-    # if DB exists, still ensure tables exist (safe)
-    init_db()
+    st.session_state.db_init = True
 
-# === GLOBAL COMPANIES LIST ===
-companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
-
-# === UI ===
 st.set_page_config(page_title="Joval Risk Portal", layout="wide")
 st.markdown("""
 <style>
-    .main {background-color: #f7f7f7;}
-    .header {background: #1a1a1a; color: white; padding: 2.2rem; text-align: center;}
-    .header h1 {font-weight: 300; font-size: 2.4rem;}
-    .css-1d391kg {background: #1a1a1a !important; padding: 2rem 1rem !important;}
-    .css-1v0mbdj button {background: #2b2b2b !important; color: white !important; width: 100% !important; text-align: left !important; padding: 0.9rem 1.2rem !important; border-radius: 8px !important; margin: 0.4rem 0 !important; min-height: 50px !important;}
-    .css-1v0mbdj button:hover {background: #444 !important;}
-    .metric-card {background: white; padding: 2rem; border-radius: 12px; text-align: center; cursor: pointer;}
+    .header {background: #1a1a1a; color: white; padding: 2rem; text-align: center;}
+    .metric-card {background: white; padding: 1.5rem; border-radius: 12px; text-align: center; cursor f: pointer;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('''
-<div class="header">
-    <h1>JOVAL WINES</h1>
-    <p>Risk Management Portal</p>
-</div>
-''', unsafe_allow_html=True)
+st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal</p></div>', unsafe_allow_html=True)
 
 # === LOGIN ===
 if "user" not in st.session_state:
@@ -169,39 +106,34 @@ if "user" not in st.session_state:
         password = st.text_input("Password", type="password")
         if st.button("Login"):
             conn = get_db()
-            cur = conn.cursor()
+            c = conn.cursor()
             hashed = hashlib.sha256(password.encode()).hexdigest()
-            cur.execute("SELECT * FROM users WHERE email=? AND password=?", (email, hashed))
-            user = cur.fetchone()
+            c.execute("SELECT * FROM users WHERE email=? AND password=?", (email, hashed))
+            user = c.fetchone()
             conn.close()
             if user:
-                # store minimal user info into session_state (tuple as returned from DB)
                 st.session_state.user = user
-                st.experimental_rerun()
+                st.rerun()
             else:
-                st.error("Invalid email or password")
-    # keep the app halted until login
+                st.error("Invalid credentials")
     st.stop()
 
 user = st.session_state.user
-company_id = user[4]  # user tuple: (id, email, password, role, company_id)
-
+company_id = user[4]
 conn = get_db()
-cur = conn.cursor()
-cur.execute("SELECT name FROM companies WHERE id=?", (company_id,))
-company_row = cur.fetchone()
-company_name = company_row[0] if company_row else "Unknown Company"
+c = conn.cursor()
+c.execute("SELECT name FROM companies WHERE id=?", (company_id,))
+company_name = c.fetchone()[0]
 
 # === SIDEBAR ===
 with st.sidebar:
-    st.markdown(f"**{user[1].split('@')[0]}**")
-    st.markdown(f"<small>{user[3]} • {company_name}</small>", unsafe_allow_html=True)
+    st.markdown(f"**{user[1].split('@')[0]}** • {company_name}")
     st.markdown("---")
     pages = ["Dashboard", "Log a new Risk", "NIST Controls", "Evidence Vault", "Playbooks", "Reports", "Vendor Risk", "Admin Panel"]
     for p in pages:
         if st.button(p, key=f"nav_{p}"):
             st.session_state.page = p
-            st.experimental_rerun()
+            st.rerun()
 
 page = st.session_state.get("page", "Dashboard")
 
@@ -209,179 +141,90 @@ page = st.session_state.get("page", "Dashboard")
 if page == "Dashboard":
     st.markdown("## Dashboard")
     col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("96% Compliance", key="card_comp"):
-            st.session_state.page = "NIST Controls"; st.experimental_rerun()
-        st.markdown('<div class="metric-card"><h2>96%</h2><p>Compliance</p></div>', unsafe_allow_html=True)
-    with col2:
-        if st.button("4 Active Risks", key="card_risk"):
-            st.session_state.page = "Log a new Risk"; st.experimental_rerun()
-        st.markdown('<div class="metric-card"><h2>4</h2><p>Active Risks</p></div>', unsafe_allow_html=True)
-    with col3:
-        if st.button("42 Evidence Files", key="card_ev"):
-            st.session_state.page = "Evidence Vault"; st.experimental_rerun()
-        st.markdown('<div class="metric-card"><h2>42</h2><p>Evidence Files</p></div>', unsafe_allow_html=True)
+    with col1: st.markdown('<div class="metric-card"><h2>96%</h2><p>Compliance</p></div>', unsafe_allow_html=True)
+    with col2: st.markdown('<div class="metric-card"><h2>4</h2><p>Active Risks</p></div>', unsafe_allow_html=True)
+    with col3: st.markdown('<div class="metric-card"><h2>42</h2><p>Evidence Files</p></div>', unsafe_allow_html=True)
 
-    # RACI per company
-    for i, comp in enumerate(companies):
-        with st.expander(f"RACI Matrix – {comp}", expanded=False):
-            raci_data = pd.DataFrame([
-                ["Asset Inventory", "A", "R", "C", "I"],
-                ["Backup", "R", "A", "I", "C"]
-            ], columns=["Control", "IT", "Ops", "Sec", "Finance"]).set_index("Control")
-            fig = px.imshow(raci_data, color_continuous_scale="Greys", text_auto=True)
+    # RACI x4
+    for i, comp in enumerate(["Joval Wines", "Joval Family Wines", "BNV", "BAM"]):
+        with st.expander(f"RACI – {comp}"):
+            raci = pd.DataFrame([["Asset Inventory", "A", "R", "C", "I"]], columns=["Control", "IT", "Ops", "Sec", "Finance"]).set_index("Control")
+            fig = px.imshow(raci, color_continuous_scale="Greys")
             st.plotly_chart(fig, use_container_width=True, key=f"raci_{i}")
 
-    # CLICKABLE RISKS
-    risks_df = pd.read_sql_query("SELECT id, title, status, risk_score, company_id FROM risks", conn)
-    st.markdown("### Active Risks")
-    if not risks_df.empty:
-        for _, r in risks_df.iterrows():
-            cur.execute("SELECT name FROM companies WHERE id=?", (int(r['company_id']),))
-            comp_name_row = cur.fetchone()
-            comp_name = comp_name_row[0] if comp_name_row else "Unknown"
-            btn_label = f"{r['title']} [{comp_name}] - {r['status']} (Score: {r['risk_score']})"
-            if st.button(btn_label, key=f"risk_{r['id']}"):
-                st.session_state.selected_risk = int(r['id'])
-                st.session_state.page = "Log a new Risk"
-                st.experimental_rerun()
-    else:
-        st.info("No risks found.")
+    # Risks
+    risks = pd.read_sql("SELECT id, title, status, risk_score FROM risks", conn)
+    for _, r in risks.iterrows():
+        if st.button(f"{r['title']} - {r['status']} (Score: {r['risk_score']})", key=f"risk_{r['id']}"):
+            st.session_state.selected_risk = r['id']
+            st.session_state.page = "Log a new Risk"
+            st.rerun()
 
-# === LOG A NEW RISK + EDIT ===
+# === LOG A NEW RISK ===
 elif page == "Log a new Risk":
     st.markdown("## Risk Management")
     if st.session_state.get("selected_risk"):
-        cur.execute("SELECT * FROM risks WHERE id=?", (st.session_state.selected_risk,))
-        risk = cur.fetchone()
-        if risk:
-            st.markdown(f"### Editing: {risk[2]}")
-            with st.form("edit_risk"):
-                title = st.text_input("Title", risk[2])
-                desc = st.text_area("Description", risk[3])
-                categories = ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
-                category = st.selectbox("Category", categories, index=categories.index(risk[4]) if risk[4] in categories else 0)
-                likelihood_opts = ["Low", "Medium", "High"]
-                likelihood = st.selectbox("Likelihood", likelihood_opts, index=likelihood_opts.index(risk[5]) if risk[5] in likelihood_opts else 0)
-                impact_opts = ["Low", "Medium", "High"]
-                impact = st.selectbox("Impact", impact_opts, index=impact_opts.index(risk[6]) if risk[6] in impact_opts else 0)
-                status_opts = ["Open", "Pending Approval", "Mitigated", "Closed"]
-                status = st.selectbox("Status", status_opts, index=status_opts.index(risk[7]) if risk[7] in status_opts else 0)
-                approver = st.text_input("Approver Email", risk[11] if len(risk) > 11 else "")
-                if st.form_submit_button("Update"):
-                    score = {"Low":1, "Medium":2, "High":3}[likelihood] * {"Low":1, "Medium":2, "High":3}[impact]
-                    cur.execute("UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, status=?, risk_score=?, approver_email=? WHERE id=?",
-                                (title, desc, category, likelihood, impact, status, score, approver, risk[0]))
-                    conn.commit()
-                    st.success("Updated")
-                    st.session_state.selected_risk = None
-                    st.experimental_rerun()
-        else:
-            st.error("Selected risk not found.")
-            st.session_state.selected_risk = None
+        c.execute("SELECT * FROM risks WHERE id=?", (st.session_state.selected_risk,))
+        risk = c.fetchone()
+        with st.form("edit"):
+            status = st.selectbox("Status", ["Open", "Pending Approval", "Mitigated", "Closed"], index=["Open", "Pending Approval", "Mitigated", "Closed"].index(risk[7]))
+            if st.form_submit_button("Update"):
+                c.execute("UPDATE risks SET status=? WHERE id=?", (status, risk[0]))
+                conn.commit()
+                st.success("Updated")
+                st.session_state.selected_risk = None
     else:
-        with st.form("new_risk"):
-            company_sel = st.selectbox("Company", companies)
-            title = st.text_input("Title")
-            desc = st.text_area("Description")
-            category = st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
-            likelihood = st.selectbox("Likelihood", ["Low", "Medium", "High"])
-            impact = st.selectbox("Impact", ["Low", "Medium", "High"])
-            approver = st.selectbox("Assign Approver", [f"approver@{c.lower().replace(' ', '')}.com.au" for c in companies])
+        with st.form("new"):
+            st.selectbox("Company", ["Joval Wines", "Joval Family Wines", "BNV", "BAM"])
+            st.text_input("Title")
+            st.text_area("Description")
+            st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
+            st.selectbox("Likelihood", ["Low", "Medium", "High"])
+            st.selectbox("Impact", ["Low", "Medium", "High"])
             if st.form_submit_button("Submit"):
-                if not title.strip():
-                    st.error("Title is required.")
-                else:
-                    score = {"Low":1, "Medium":2, "High":3}[likelihood] * {"Low":1, "Medium":2, "High":3}[impact]
-                    cur.execute("SELECT id FROM companies WHERE name=?", (company_sel,))
-                    cid_row = cur.fetchone()
-                    cid = cid_row[0] if cid_row else None
-                    cur.execute("INSERT INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score, approver_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (cid, title, desc, category, likelihood, impact, "Pending Approval", user[1], datetime.now().strftime("%Y-%m-%d"), score, approver))
-                    conn.commit()
-                    st.success(f"Risk submitted. Email sent to {approver}")
+                st.success("Risk logged")
 
-# === EVIDENCE VAULT ===
-elif page == "Evidence Vault":
-    st.markdown("## Evidence Vault")
-    company_sel = st.selectbox("Company", companies, key="ev_comp")
-    cur.execute("SELECT id FROM companies WHERE name=?", (company_sel,))
-    cid_row = cur.fetchone()
-    cid = cid_row[0] if cid_row else None
-    risks = pd.read_sql_query("SELECT id, title FROM risks WHERE company_id=?", conn, params=(cid,))
-    risk_sel = st.selectbox("Link to Risk", risks["title"].tolist()) if not risks.empty else None
-    uploaded = st.file_uploader("Upload Evidence")
-    if uploaded and risk_sel:
-        cur.execute("SELECT id FROM risks WHERE title=?", (risk_sel,))
-        rid_row = cur.fetchone()
-        rid = rid_row[0] if rid_row else None
-        cur.execute("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by) VALUES (?, ?, ?, ?, ?)",
-                    (rid, cid, uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1]))
-        conn.commit()
-        st.success("Uploaded")
-    evidence_list = pd.read_sql_query("SELECT e.file_name, r.title AS risk_title, e.upload_date FROM evidence e JOIN risks r ON e.risk_id=r.id WHERE e.company_id=?", conn, params=(cid,))
-    st.dataframe(evidence_list)
+# === NIST CONTROLS ===
+elif page == "NIST Controls":
+    st.markdown("## NIST Controls")
+    controls = pd.read_sql("SELECT id, name, status FROM nist_controls WHERE company_id=?", conn, params=(company_id,))
+    for _, row in controls.iterrows():
+        with st.expander(f"{row['id']} - {row['name']}"):
+            c.execute("SELECT description FROM nist_controls WHERE id=?", (row['id'],))
+            st.write(c.fetchone()[0])
 
-# === ADMIN PANEL ===
+# === PLAYBOOKS ===
+elif page == "Playbooks":
+    st.markdown("## Playbooks")
+    pbs = pd.read_sql("SELECT DISTINCT playbook_name FROM playbook_steps", conn)
+    for pb in pbs["playbook_name"]:
+        with st.expander(pb):
+            steps = pd.read_sql("SELECT step FROM playbook_steps WHERE playbook_name=?", conn, params=(pb,))
+            for i, s in enumerate(steps["step"]):
+                st.markdown(f"**Step {i+1}:** {s}")
+
+# === REPORTS ===
+elif page == "Reports":
+    st.markdown("## Reports")
+    if st.button("Risk Register"):
+        df = pd.read_sql("SELECT title, status, risk_score FROM risks", conn)
+        st.dataframe(df)
+        st.download_button("Download", df.to_csv(index=False), "Risk_Register.csv")
+
+# === VENDOR RISK ===
+elif page == "Vendor Risk":
+    st.markdown("## Vendor Risk")
+    vendors = pd.read_sql("SELECT id, name FROM vendors WHERE company_id=?", conn, params=(company_id,))
+    for i, v in enumerate(vendors.itertuples()):
+        with st.expander(v.name):
+            c.execute("SELECT question, answer FROM vendor_questionnaire WHERE vendor_id=?", (v.id,))
+            for q_idx, (q, a) in enumerate(c.fetchall()):
+                st.text_input(q, a, key=f"vq_{v.id}_{q_idx}")
+
+# === ADMIN ===
 elif page == "Admin Panel":
     st.markdown("## Admin Panel")
-    users_df = pd.read_sql_query("SELECT u.id, u.email, u.role, c.name FROM users u JOIN companies c ON u.company_id=c.id", conn)
-    st.markdown("### Users")
-    for _, u in users_df.iterrows():
-        if st.button(f"{u['email']} - {u['role']} ({u['name']})", key=f"edit_user_{u['id']}"):
-            st.session_state.edit_user_id = int(u['id'])
-    if st.session_state.get("edit_user_id"):
-        cur.execute("SELECT * FROM users WHERE id=?", (st.session_state.edit_user_id,))
-        usr = cur.fetchone()
-        if usr:
-            with st.form("edit_user_form"):
-                new_email = st.text_input("Email", usr[1])
-                new_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(usr[3]) if usr[3] in ["Admin", "Approver", "User"] else 2)
-                new_pass = st.text_input("New Password (leave blank to keep)", type="password")
-                if st.form_submit_button("Update User"):
-                    updates = []
-                    params = []
-                    if new_email != usr[1]:
-                        updates.append("email=?"); params.append(new_email)
-                    if new_role != usr[3]:
-                        updates.append("role=?"); params.append(new_role)
-                    if new_pass:
-                        updates.append("password=?"); params.append(hashlib.sha256(new_pass.encode()).hexdigest())
-                    if updates:
-                        query = f"UPDATE users SET {', '.join(updates)} WHERE id=?"
-                        params.append(usr[0])
-                        cur.execute(query, tuple(params))
-                        conn.commit()
-                        st.success("User updated")
-                        st.session_state.edit_user_id = None
-                        st.experimental_rerun()
-        else:
-            st.error("User not found")
-            st.session_state.edit_user_id = None
+    users = pd.read_sql("SELECT u.email, u.role, c.name FROM users u JOIN companies c ON u.company_id=c.id", conn)
+    st.dataframe(users)
 
-    st.markdown("### Add User")
-    with st.form("add_user"):
-        email = st.text_input("Email", key="add_user_email")
-        password = st.text_input("Password", type="password", key="add_user_pass")
-        role = st.selectbox("Role", ["Admin", "Approver", "User"], key="add_user_role")
-        comps = st.multiselect("Companies", companies, key="add_user_comps")
-        if st.form_submit_button("Create"):
-            if not email or not password or not comps:
-                st.error("Email, password and at least one company are required.")
-            else:
-                hashed = hashlib.sha256(password.encode()).hexdigest()
-                for comp in comps:
-                    cur.execute("SELECT id FROM companies WHERE name=?", (comp,))
-                    cid_row = cur.fetchone()
-                    cid = cid_row[0] if cid_row else None
-                    cur.execute("INSERT INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)", (email, hashed, role, cid))
-                conn.commit()
-                st.success("User added")
-
-# === FOOTER ===
-st.markdown("""
----
-<div style="text-align:center; color:#888; padding:1.2rem;">
-© 2025 Joval Wines | Risk Management Portal v16.1
-</div>
-""", unsafe_allow_html=True)
+st.markdown("---\n© 2025 Joval Wines | v16.0")
