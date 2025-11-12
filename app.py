@@ -1,24 +1,4 @@
-# === JOVAL WINES RISK PORTAL v17.0 – DASHBOARD REVAMP + ADMIN FIXED ===
-mkdir JovalPortal -Force; cd JovalPortal
-
-# Dockerfile
-'FROM python:3.11-slim
-WORKDIR /app
-COPY . .
-RUN pip install --no-cache-dir streamlit pandas plotly pyyaml reportlab bcrypt
-EXPOSE 8501
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]' | Out-File Dockerfile -Encoding utf8
-
-# requirements.txt
-'streamlit
-pandas
-plotly
-pyyaml
-reportlab
-bcrypt' | Out-File requirements.txt -Encoding utf8
-
-# app.py – v17.0 FINAL: DASHBOARD REVAMP + ADMIN ADD USER
-@'
+# app.py – JOVAL WINES RISK PORTAL v17.1 – FULLY WORKING
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -35,27 +15,32 @@ def init_db():
     c = conn.cursor()
 
     # TABLES
-    c.execute("""CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS companies (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
     c.execute("""CREATE TABLE IF NOT EXISTS users (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password TEXT, role TEXT, company_id INTEGER)""")
     c.execute("""CREATE TABLE IF NOT EXISTS risks (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER, title TEXT, description TEXT, category TEXT,
-                 likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, risk_score INTEGER, 
-                 approver_email TEXT, approver_notes TEXT)""")
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 company_id INTEGER, title TEXT, description TEXT, category TEXT,
+                 likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT,
+                 submitted_date TEXT, risk_score INTEGER, approver_email TEXT,
+                 approver_notes TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS evidence (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT, risk_id INTEGER, company_id INTEGER, file_name TEXT, upload_date TEXT, uploaded_by TEXT)""")
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, risk_id INTEGER, company_id INTEGER,
+                 file_name TEXT, upload_date TEXT, uploaded_by TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS nist_controls (
                  id TEXT PRIMARY KEY, name TEXT, description TEXT, status TEXT, notes TEXT, company_id INTEGER)""")
     c.execute("""CREATE TABLE IF NOT EXISTS playbook_steps (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, playbook_name TEXT, step TEXT, checked INTEGER, notes TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS vendors (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, risk_level TEXT, last_assessment TEXT, company_id INTEGER)""")
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, 
+                 risk_level TEXT, last_assessment TEXT, company_id INTEGER)""")
     c.execute("""CREATE TABLE IF NOT EXISTS vendor_questionnaire (
                  vendor_id INTEGER, question TEXT, answer TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
-    # FIX: Add missing columns
+    # FIX: Add missing columns if DB exists
     try:
         c.execute("SELECT approver_notes FROM risks LIMIT 1")
     except sqlite3.OperationalError:
@@ -78,23 +63,23 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"approver@{comp.lower().replace(' ', '')}.com.au", hashed, "Approver", i))
 
-    # NIST CONTROLS (20+)
+    # NIST CONTROLS
     nist_full = [
-        ("GV.OC-01", "Cybersecurity Strategy", "Define and communicate cybersecurity strategy aligned with business objectives.", "Implemented", "", 1),
-        ("GV.RM-01", "Risk Management Strategy", "Establish enterprise risk management framework integrating cyber risks.", "Implemented", "", 1),
-        ("GV.SC-01", "Supply Chain Risk", "Implement supply chain risk management program with vendor assessments.", "Partial", "", 1),
-        ("ID.AM-01", "Asset Inventory", "Maintain inventory of hardware, software, and data assets.", "Implemented", "", 1),
-        ("ID.AM-05", "Data Classification", "Classify data based on sensitivity and business impact.", "Implemented", "", 1),
-        ("ID.RA-05", "Threat Identification", "Subscribe to threat intelligence and conduct threat modeling.", "Partial", "", 1),
-        ("PR.AC-01", "Identity Management", "Implement MFA, RBAC, and quarterly access reviews.", "Implemented", "", 1),
-        ("PR.DS-05", "Data Encryption", "Encrypt data at rest (AES-256) and in transit (TLS 1.3).", "Implemented", "", 1),
-        ("PR.MA-01", "Patch Management", "Apply critical patches within 7 days; use vulnerability scanning.", "Implemented", "", 1),
-        ("PR.AT-01", "Awareness Training", "Annual security training and quarterly phishing simulations.", "Implemented", "", 1),
-        ("DE.CM-01", "Continuous Monitoring", "Deploy SIEM with 24/7 alerting and log correlation.", "Implemented", "", 1),
-        ("DE.AE-01", "Anomalous Activity", "Deploy UEBA to detect insider threats and lateral movement.", "Partial", "", 1),
-        ("RS.MI-01", "Incident Response Plan", "Maintain tested IR plan with quarterly tabletop exercises.", "Partial", "", 1),
-        ("RS.CO-02", "Coordination", "Cross-functional IR team with IT, Legal, PR.", "Implemented", "", 1),
-        ("RC.RP-01", "Recovery Planning", "RPO < 4h, RTO < 8h, air-gapped backups.", "Implemented", "", 1),
+        ("GV.OC-01", "Cybersecurity Strategy", "Define and communicate cybersecurity strategy.", "Implemented", "", 1),
+        ("GV.RM-01", "Risk Management Strategy", "Establish enterprise risk management framework.", "Implemented", "", 1),
+        ("GV.SC-01", "Supply Chain Risk", "Implement supply chain risk management program.", "Partial", "", 1),
+        ("ID.AM-01", "Asset Inventory", "Maintain inventory of hardware, software, and data.", "Implemented", "", 1),
+        ("ID.AM-05", "Data Classification", "Classify data based on sensitivity.", "Implemented", "", 1),
+        ("ID.RA-05", "Threat Identification", "Subscribe to threat intelligence.", "Partial", "", 1),
+        ("PR.AC-01", "Identity Management", "Implement MFA, RBAC.", "Implemented", "", 1),
+        ("PR.DS-05", "Data Encryption", "Encrypt data at rest and in transit.", "Implemented", "", 1),
+        ("PR.MA-01", "Patch Management", "Apply critical patches within 7 days.", "Implemented", "", 1),
+        ("PR.AT-01", "Awareness Training", "Annual training and phishing simulations.", "Implemented", "", 1),
+        ("DE.CM-01", "Continuous Monitoring", "Deploy SIEM with 24/7 alerting.", "Implemented", "", 1),
+        ("DE.AE-01", "Anomalous Activity", "Deploy UEBA.", "Partial", "", 1),
+        ("RS.MI-01", "Incident Response Plan", "Maintain tested IR plan.", "Partial", "", 1),
+        ("RS.CO-02", "Coordination", "Cross-functional IR team.", "Implemented", "", 1),
+        ("RC.RP-01", "Recovery Planning", "RPO < 4h, RTO < 8h.", "Implemented", "", 1),
         ("ID.BE-01", "Business Environment", "Identify critical processes.", "Implemented", "", 1),
         ("PR.IP-01", "Baseline Configuration", "Use CIS benchmarks.", "Implemented", "", 1),
         ("RS.AN-01", "Analysis", "Analyze incidents for root cause.", "Implemented", "", 1),
@@ -103,100 +88,27 @@ def init_db():
     ]
     c.executemany("INSERT OR IGNORE INTO nist_controls VALUES (?, ?, ?, ?, ?, ?)", nist_full)
 
-    # PLAYBOOKS (12)
+    # PLAYBOOKS
     playbooks = {
-        "Ransomware Response": [
-            "Isolate affected systems by disabling network connectivity",
-            "Preserve forensic evidence: capture memory dump and disk image",
-            "Activate Incident Response Team via Slack #ir-alert",
-            "Engage legal counsel for APRA/ASIC reporting",
-            "Restore from offline, verified backup",
-            "Conduct root cause analysis and update controls"
-        ],
-        "Phishing Attack": [
-            "Quarantine malicious email across all mailboxes",
-            "Reset passwords for affected users with MFA",
-            "Scan endpoints for malware using CrowdStrike",
-            "Run targeted phishing simulation within 48 hours",
-            "Update phishing filters and add sender to blocklist"
-        ],
-        "Data Exfiltration": [
-            "Block all egress traffic at firewall level",
-            "Preserve network logs for 90 days",
-            "Initiate digital forensics investigation",
-            "Notify APRA within 72 hours if PII involved",
-            "Implement DLP policy enhancements"
-        ],
-        "Insider Threat": [
-            "Place user on administrative leave immediately",
-            "Revoke all access tokens and VPN",
-            "Preserve HR and access logs",
-            "Conduct exit interview and device return",
-            "Review least privilege access policies"
-        ],
-        "DDoS Attack": [
-            "Activate Cloudflare DDoS mitigation rules",
-            "Engage ISP for upstream filtering",
-            "Monitor traffic patterns in real-time",
-            "Failover to secondary data center",
-            "Post-event capacity planning review"
-        ],
-        "Physical Breach": [
-            "Lock down facility and activate CCTV",
-            "Notify law enforcement immediately",
-            "Preserve access card logs and video",
-            "Conduct physical security audit",
-            "Update badge access policies"
-        ],
-        "Cloud Misconfiguration": [
-            "Revoke public S3 bucket access",
-            "Enable CloudTrail and GuardDuty",
-            "Scan all cloud accounts for open ports",
-            "Implement CIS AWS Foundations benchmark",
-            "Train DevOps on secure IaC"
-        ],
-        "Zero-Day Exploit": [
-            "Deploy virtual patching via WAF",
-            "Isolate vulnerable systems",
-            "Monitor exploit attempts in SIEM",
-            "Apply vendor patch within 24 hours",
-            "Update vulnerability management process"
-        ],
-        "Credential Stuffing": [
-            "Enforce MFA for all external accounts",
-            "Block IPs with high failed logins",
-            "Reset passwords for breached credentials",
-            "Enable dark web monitoring",
-            "Implement CAPTCHA on login pages"
-        ],
-        "Supply Chain Attack": [
-            "Isolate compromised vendor software",
-            "Scan all systems for IOCs",
-            "Notify affected vendors and partners",
-            "Review third-party risk program",
-            "Update vendor onboarding checklist"
-        ],
-        "Backup Failure": [
-            "Restore from secondary offsite backup",
-            "Initiate root cause analysis on primary",
-            "Test restored data integrity",
-            "Update backup configuration",
-            "Conduct full backup verification drill"
-        ],
-        "API Abuse": [
-            "Implement rate limiting and API key rotation",
-            "Audit API logs for anomalous patterns",
-            "Revoke compromised API keys",
-            "Enable API gateway with WAF",
-            "Document API usage policy"
-        ]
+        "Ransomware Response": ["Isolate", "Preserve", "Activate IR", "Restore"],
+        "Phishing Attack": ["Quarantine", "Reset", "Scan", "Update"],
+        "Data Exfiltration": ["Block egress", "Preserve logs", "Notify APRA", "Enhance DLP"],
+        "Insider Threat": ["Revoke access", "Preserve logs", "HR investigation", "Update policy"],
+        "DDoS Attack": ["Activate Cloudflare", "Engage ISP", "Failover", "Capacity plan"],
+        "Physical Breach": ["Lock facility", "Preserve CCTV", "Audit access", "Update badges"],
+        "Cloud Misconfig": ["Block public S3", "Enable GuardDuty", "Scan with Prowler", "Train DevOps"],
+        "Zero-Day Exploit": ["Virtual patch", "Isolate system", "Monitor IOCs", "Apply patch"],
+        "Credential Stuffing": ["Enforce MFA", "Block IPs", "Reset passwords", "Dark web scan"],
+        "Supply Chain Attack": ["Isolate software", "Scan IOCs", "Notify vendor", "Update SLA"],
+        "Backup Failure": ["Restore from secondary", "RCA on Veeam", "Test integrity", "Update config"],
+        "API Abuse": ["Rate limit", "Audit logs", "Rotate keys", "Enable WAF"]
     }
     for name, steps in playbooks.items():
         for step in steps:
             c.execute("INSERT OR IGNORE INTO playbook_steps (playbook_name, step, checked, notes) VALUES (?, ?, ?, ?)",
                       (name, step, 0, ""))
 
-    # VENDORS
+    # VENDORS (6 values)
     vendors = [
         (1, "Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1),
         (2, "Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1)
@@ -215,7 +127,7 @@ def init_db():
     ]
     c.executemany("INSERT OR IGNORE INTO vendor_questionnaire VALUES (?, ?, ?)", questions)
 
-    # RISKS
+    # RISKS (13 values)
     risks = [
         (1, "Phishing Campaign", "Finance targeted", "DETECT", "High", "High", "Pending Approval", "finance@jovalwines.com.au", "2025-10-01", 9, "approver@jovalwines.com.au", ""),
         (2, "Laptop Lost", "Customer PII", "PROTECT", "Medium", "High", "Mitigated", "it@jovalfamilywines.com.au", "2025-09-28", 6, "approver@jovalfamilywines.com.au", "Wiped"),
@@ -239,15 +151,16 @@ def log_action(user_email, action, details=""):
     conn.commit()
     conn.close()
 
-# === INIT DB ===
+# === INIT DB SAFELY ===
 if "db_init" not in st.session_state:
     try:
         init_db()
         st.session_state.db_init = True
     except Exception as e:
-        st.error(f"DB Error: {e}")
+        st.error(f"Database initialization failed: {str(e)}")
         st.stop()
 
+# === APP CONFIG ===
 st.set_page_config(page_title="Joval Risk Portal", layout="wide")
 st.markdown("""
 <style>
@@ -286,7 +199,7 @@ c = conn.cursor()
 c.execute("SELECT name FROM companies WHERE id=?", (company_id,))
 company_name = c.fetchone()[0]
 
-# === SIDEBAR ===
+# === SIDEBAR NAV ===
 with st.sidebar:
     st.markdown(f"**{user[1].split('@')[0]}** • {company_name}")
     st.markdown("---")
@@ -300,16 +213,28 @@ page = st.session_state.get("page", "Dashboard")
 
 # === DASHBOARD ===
 if page == "Dashboard":
-    st.markdown("## Dashboard")
-    col1, col2, col3 = st.columns(3)
-    with col1: st.markdown('<div class="metric-card"><h2>96%</h2><p>Compliance</p></div>', unsafe_allow_html=True)
+    st.markdown("## Risk Dashboard")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: st.markdown('<div class="metric-card"><h2>96%</h2><p>NIST Compliance</p></div>', unsafe_allow_html=True)
     with col2: st.markdown('<div class="metric-card"><h2>4</h2><p>Active Risks</p></div>', unsafe_allow_html=True)
     with col3: st.markdown('<div class="metric-card"><h2>42</h2><p>Evidence Files</p></div>', unsafe_allow_html=True)
+    with col4: st.markdown('<div class="metric-card"><h2>12</h2><p>Vendors</p></div>', unsafe_allow_html=True)
+
+    # Risk Heatmap
+    risks = pd.read_sql("SELECT likelihood, impact, COUNT(*) as count FROM risks GROUP BY likelihood, impact", conn)
+    if not risks.empty:
+        risks['likelihood'] = risks['likelihood'].map({"Low":1, "Medium":2, "High":3})
+        risks['impact'] = risks['impact'].map({"Low":1, "Medium":2, "High":3})
+        fig = px.scatter(risks, x="likelihood", y="impact", size="count", color="count",
+                         color_continuous_scale="Reds", title="Risk Heatmap")
+        st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("### Active Risks")
-    risks = pd.read_sql("SELECT id, title, status, risk_score FROM risks", conn)
+    risks = pd.read_sql("SELECT id, title, status, risk_score, submitted_date FROM risks ORDER BY risk_score DESC", conn)
     for _, r in risks.iterrows():
-        if st.button(f"{r['title']} - {r['status']} (Score: {r['risk_score']})", key=f"risk_{r['id']}"):
+        color = "red" if r['risk_score'] >= 7 else "orange" if r['risk_score'] >= 4 else "green"
+        st.markdown(f"**{r['title']}** - <span style='color:{color}'>Score: {r['risk_score']}</span> | {r['status']} | {r['submitted_date']}", unsafe_allow_html=True)
+        if st.button(f"Edit →", key=f"risk_{r['id']}"):
             st.session_state.selected_risk = r['id']
             st.session_state.page = "Log a new Risk"
             st.rerun()
@@ -353,7 +278,7 @@ elif page == "Log a new Risk":
                            datetime.now().strftime("%Y-%m-%d"), score, approver, ""))
                 conn.commit()
                 log_action(user[1], "RISK_SUBMITTED", f"Title: {title}")
-                st.success("Submitted")
+                st.success("Risk submitted")
                 st.rerun()
 
 # === NIST CONTROLS ===
@@ -437,7 +362,7 @@ elif page == "Vendor Risk":
             v_name = st.text_input("Vendor Name")
             v_email = st.text_input("Contact Email")
             v_level = st.selectbox("Risk Level", ["Low", "Medium", "High"])
-            if st.form_submit_button("Add & Send Survey"):
+            if st.form_submit_button("Add Vendor"):
                 c.execute("INSERT INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
                           (v_name, v_email, v_level, datetime.now().strftime("%Y-%m-%d"), company_id))
                 vid = c.lastrowid
@@ -467,6 +392,29 @@ elif page == "Audit Trail":
 # === ADMIN PANEL ===
 elif page == "Admin Panel":
     st.markdown("## Admin Panel")
+    
+    # ADD NEW USER
+    with st.expander("Add New User"):
+        with st.form("add_user"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            role = st.selectbox("Role", ["Admin", "Approver", "User"])
+            companies = st.multiselect("Assign to Companies", ["Joval Wines", "Joval Family Wines", "BNV", "BAM"])
+            if st.form_submit_button("Create User"):
+                if not email or not password:
+                    st.error("Email and password required")
+                else:
+                    hashed = hashlib.sha256(password.encode()).hexdigest()
+                    for comp in companies:
+                        c.execute("SELECT id FROM companies WHERE name=?", (comp,))
+                        cid = c.fetchone()[0]
+                        c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
+                                  (email, hashed, role, cid))
+                    conn.commit()
+                    log_action(user[1], "USER_CREATED", f"Email: {email}")
+                    st.success("User created")
+
+    # EDIT USERS
     users = pd.read_sql("SELECT u.id, u.email, u.role, c.name FROM users u JOIN companies c ON u.company_id=c.id", conn)
     for _, u in users.iterrows():
         if st.button(f"{u['email']} - {u['role']} ({u['name']})", key=f"user_{u['id']}"):
@@ -476,7 +424,7 @@ elif page == "Admin Panel":
     if st.session_state.get("edit_user"):
         c.execute("SELECT * FROM users WHERE id=?", (st.session_state.edit_user,))
         usr = c.fetchone()
-        with st.form("edit_user"):
+        with st.form("edit_user_form"):
             role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(usr[3]))
             new_pass = st.text_input("New Password (leave blank to keep)", type="password")
             if st.form_submit_button("Update User"):
@@ -490,23 +438,5 @@ elif page == "Admin Panel":
                 st.success("User updated")
                 st.session_state.edit_user = None
                 st.rerun()
-
-    # ADD NEW USER
-    with st.expander("Add New User"):
-        with st.form("add_user"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            role = st.selectbox("Role", ["Admin", "Approver", "User"])
-            companies = st.multiselect("Assign to Companies", ["Joval Wines", "Joval Family Wines", "BNV", "BAM"])
-            if st.form_submit_button("Create User"):
-                hashed = hashlib.sha256(password.encode()).hexdigest()
-                for comp in companies:
-                    c.execute("SELECT id FROM companies WHERE name=?", (comp,))
-                    cid = c.fetchone()[0]
-                    c.execute("INSERT INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
-                              (email, hashed, role, cid))
-                conn.commit()
-                log_action(user[1], "USER_CREATED", f"Email: {email}")
-                st.success("User created")
 
 st.markdown("---\n© 2025 Joval Wines | v17.1")
