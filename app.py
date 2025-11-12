@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v23.3 – FULL & FINAL
+# app.py – JOVAL WINES RISK PORTAL v23.5 – FINAL & COMPLETE
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -71,7 +71,7 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"approver@{comp.lower().replace(' ', '')}.com.au", hashed, "Approver", i))
 
-    # FULL 106 NIST CONTROLS – COMPLETE LIST
+    # FULL 106 NIST CONTROLS
     nist_full = [
         ("GV.OC-01", "Organizational Context", "Mission, objectives, and stakeholders are understood and inform cybersecurity risk management.", "Map supply chain, stakeholders, and business objectives in Lucidchart. Align with OKRs.", "Implemented", "", 1, "2025-11-01"),
         ("GV.OC-02", "Cybersecurity Alignment", "Cybersecurity is integrated with business objectives.", "Map KPIs to OKRs. Quarterly review with CISO and CRO.", "Implemented", "", 1, "2025-11-01"),
@@ -400,7 +400,9 @@ elif page == "NIST Controls":
             if ctrl['notes']: st.write(f"**Notes**: {ctrl['notes']}")
             col1, col2 = st.columns(2)
             with col1:
-                new_status = st.selectbox("Status", ["Implemented", "Partial", "Not Started"], index=["Implemented", "Partial", "Not Started"].index(ctrl['status']), key=f"s_{ctrl['id']}")
+                new_status = st.selectbox("Status", ["Implemented", "Partial", "Not Started"], 
+                                        index=["Implemented", "Partial", "Not Started"].index(ctrl['status']), 
+                                        key=f"s_{ctrl['id']}")
             with col2:
                 new_notes = st.text_area("Notes", ctrl['notes'], key=f"n_{ctrl['id']}", height=80)
             if st.button("Save", key=f"save_{ctrl['id']}"):
@@ -424,7 +426,7 @@ elif page == "Evidence Vault":
         conn.commit()
         st.success("Evidence uploaded")
 
-    evidence = pd.read_sql("SELECT id, file_name, upload_date FROM evidence WHERE risk_id=? AND company_id=?", conn, params=(risk_id, company_id))
+    evidence = pd.read_sql("SELECT id, file_name, upload_date FROM evidence WHERE risk_id=? AND company_id=?", conn, params=(risk,company_id))
     for _, e in evidence.iterrows():
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -497,17 +499,17 @@ elif page == "Reports":
                 pdf = generate_pdf_report(title, lines)
                 st.download_button(f"Download {title}.pdf", pdf, f"{title}.pdf", "application/pdf")
 
-# === ADMIN PANEL – FULLY ENHANCED ===
+# === ADMIN PANEL ===
 elif page == "Admin Panel" and user[3] == "Admin":
     st.markdown("## Admin Panel")
 
-    # ADD USER
     with st.expander("Add New User"):
-        with st.form("add_user"):
+        with st.form("add_user_form"):
             new_email = st.text_input("Email")
             new_password = st.text_input("Password", type="password")
             new_role = st.selectbox("Role", ["Admin", "Approver", "User"])
-            new_company = st.selectbox("Company", pd.read_sql("SELECT name FROM companies", conn)['name'])
+            companies_df = pd.read_sql("SELECT name FROM companies", conn)
+            new_company = st.selectbox("Company", companies_df['name'])
             if st.form_submit_button("Create User"):
                 hashed = hashlib.sha256(new_password.encode()).hexdigest()
                 comp_id = pd.read_sql("SELECT id FROM companies WHERE name=?", conn, params=(new_company,)).iloc[0]['id']
@@ -521,7 +523,6 @@ elif page == "Admin Panel" and user[3] == "Admin":
                 except sqlite3.IntegrityError:
                     st.error("Email already exists")
 
-    # MANAGE USERS
     users_df = pd.read_sql("SELECT id, email, role, company_id FROM users", conn)
     companies = pd.read_sql("SELECT id, name FROM companies", conn)
     comp_map = dict(zip(companies['id'], companies['name']))
@@ -531,20 +532,25 @@ elif page == "Admin Panel" and user[3] == "Admin":
         with st.expander(f"{u['email']} – {u['role']} – {u['company']}"):
             col1, col2 = st.columns([3, 1])
             with col1:
-                with st.form(key=f"edit_user_{u['id']}"):
-                    new_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(u['role']), key=f"r_{u['id']}")
-                    current_idx = companies[companies['name'] == u['company']].index
-                    default_idx = current_idx[0] if not current_idx.empty else 0
-                    new_comp = st.selectbox("Company", companies['name'], index=default_idx, key=f"c_{u['id']}")
-                    if st.form_submit_button("Update", key=f"u_{u['id']}"):
+                with st.form(key=f"edit_user_form_{u['id']}"):
+                    new_role = st.selectbox("Role", ["Admin", "Approver", "User"], 
+                                          index=["Admin", "Approver", "User"].index(u['role']), 
+                                          key=f"role_select_{u['id']}")
+                    comp_idx = companies[companies['name'] == u['company']].index
+                    default_idx = comp_idx[0] if not comp_idx.empty else 0
+                    new_comp = st.selectbox("Company", companies['name'], 
+                                          index=default_idx, 
+                                          key=f"comp_select_{u['id']}")
+                    if st.form_submit_button("Update", key=f"update_btn_{u['id']}"):
                         new_comp_id = companies[companies['name'] == new_comp].iloc[0]['id']
-                        c.execute("UPDATE users SET role=?, company_id=? WHERE id=?", (new_role, new_comp_id, u['id']))
+                        c.execute("UPDATE users SET role=?, company_id=? WHERE id=?", 
+                                  (new_role, new_comp_id, u['id']))
                         conn.commit()
                         log_action(user[1], "USER_UPDATED", u['email'])
                         st.success("Updated")
                         st.rerun()
             with col2:
-                if st.button("Delete", key=f"del_{u['id']}"):
+                if st.button("Delete", key=f"del_user_{u['id']}"):
                     c.execute("DELETE FROM users WHERE id=?", (u['id'],))
                     conn.commit()
                     log_action(user[1], "USER_DELETED", u['email'])
@@ -554,8 +560,10 @@ elif page == "Admin Panel" and user[3] == "Admin":
 # === AUDIT TRAIL ===
 elif page == "Audit Trail" and user[3] == "Admin":
     st.markdown("## Audit Trail")
-    trail = pd.read_sql("SELECT * FROM audit_trail ORDER BY timestamp DESC", conn)
-    st.dataframe(trail)
+    trail = pd.read_sql("SELECT id, timestamp, user_email, action, details FROM audit_trail ORDER BY timestamp DESC", conn)
+    for _, row in trail.iterrows():
+        with st.expander(f"{row['timestamp']} – {row['user_email']} – {row['action']}"):
+            st.write(f"**Details**: {row['details'] or '—'}")
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines")
