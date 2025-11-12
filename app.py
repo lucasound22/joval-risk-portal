@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v23.1 – FULLY COMPLETE & RESTORED
+# app.py – JOVAL WINES RISK PORTAL v23.2 – ADMIN PANEL FIXED
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -71,7 +71,7 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"approver@{comp.lower().replace(' ', '')}.com.au", hashed, "Approver", i))
 
-    # FULL 106 NIST CONTROLS – COMPLETE LIST
+    # FULL 106 NIST CONTROLS
     nist_full = [
         ("GV.OC-01", "Organizational Context", "Mission, objectives, and stakeholders are understood and inform cybersecurity risk management.", "Map supply chain, stakeholders, and business objectives in Lucidchart. Align with OKRs.", "Implemented", "", 1, "2025-11-01"),
         ("GV.OC-02", "Cybersecurity Alignment", "Cybersecurity is integrated with business objectives.", "Map KPIs to OKRs. Quarterly review with CISO and CRO.", "Implemented", "", 1, "2025-11-01"),
@@ -278,7 +278,7 @@ if "user" not in st.session_state:
             user = c.fetchone()
             conn.close()
             if user:
-                st.session_state.user = user
+                st.session_state.user = = user
                 log_action(email, "LOGIN")
                 st.rerun()
             else:
@@ -328,7 +328,6 @@ if page == "Dashboard":
     with col2:
         st.markdown(f'<div class="metric-card"><h2>{high_risks_open}</h2><p>High Risks Open</p></div>', unsafe_allow_html=True)
 
-    # RISK STATUS CHART
     risks_df = pd.read_sql("SELECT status, risk_score FROM risks WHERE company_id=?", conn, params=(company_id,))
     if not risks_df.empty:
         risks_df['color'] = risks_df['risk_score'].apply(get_risk_color)
@@ -492,7 +491,7 @@ elif page == "Reports":
                 pdf = generate_pdf_report(title, lines)
                 st.download_button(f"Download {title}.pdf", pdf, f"{title}.pdf", "application/pdf")
 
-# === ADMIN PANEL ===
+# === ADMIN PANEL (FIXED) ===
 elif page == "Admin Panel" and user[3] == "Admin":
     st.markdown("## Admin Panel")
     users_df = pd.read_sql("SELECT id, email, role, company_id FROM users", conn)
@@ -503,13 +502,25 @@ elif page == "Admin Panel" and user[3] == "Admin":
     for _, u in users_df.iterrows():
         with st.expander(f"{u['email']} – {u['role']} – {u['company']}"):
             with st.form(key=f"edit_user_{u['id']}"):
-                new_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(u['role']))
-                new_comp = st.selectbox("Company", companies['name'], index=companies[companies['name'] == u['company']].index[0])
-                if st.form_submit_button("Update"):
+                new_role = st.selectbox(
+                    "Role",
+                    ["Admin", "Approver", "User"],
+                    index=["Admin", "Approver", "User"].index(u['role'])
+                )
+                current_comp_index = companies[companies['name'] == u['company']].index
+                default_index = current_comp_index[0] if not current_comp_index.empty else 0
+                new_comp = st.selectbox(
+                    "Company",
+                    companies['name'],
+                    index=default_index
+                )
+                if st.form_submit_button("Update User"):
                     new_comp_id = companies[companies['name'] == new_comp].iloc[0]['id']
-                    c.execute("UPDATE users SET role=?, company_id=? WHERE id=?", (new_role, new_comp_id, u['id']))
+                    c.execute("UPDATE users SET role=?, company_id=? WHERE id=?", 
+                              (new_role, new_comp_id, u['id']))
                     conn.commit()
-                    st.success("Updated")
+                    log_action(user[1], "USER_UPDATED", f"{u['email']} → {new_role}, {new_comp}")
+                    st.success(f"Updated {u['email']}")
                     st.rerun()
 
 # === AUDIT TRAIL ===
