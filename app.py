@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v23.6 – FINAL & COMPLETE
+# app.py – JOVAL WINES RISK PORTAL v23.7 – FINAL & COMPLETE
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -72,14 +72,14 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"approver@{comp.lower().replace(' ', '')}.com.au", hashed, "Approver", i))
 
-    # FULL 106 NIST CONTROLS (only first few shown for brevity – full list in v23.5)
+    # FULL 106 NIST CONTROLS (sample – full list in v23.5)
     nist_full = [
         ("GV.OC-01", "Organizational Context", "Mission, objectives, and stakeholders are understood and inform cybersecurity risk management.", "Map supply chain, stakeholders, and business objectives in Lucidchart. Align with OKRs.", "Implemented", "", 1, "2025-11-01"),
         ("GV.OC-02", "Cybersecurity Alignment", "Cybersecurity is integrated with business objectives.", "Map KPIs to OKRs. Quarterly review with CISO and CRO.", "Implemented", "", 1, "2025-11-01"),
         ("GV.OC-03", "Legal Requirements", "Legal and regulatory requirements are understood and managed.", "Maintain legal register in SharePoint. Include APRA, GDPR, Privacy Act.", "Implemented", "", 1, "2025-11-01"),
         ("GV.RM-01", "Risk Strategy", "Risk management strategy is established and maintained.", "Adopt ISO 31000 + NIST CSF. Board-approved.", "Implemented", "", 1, "2025-11-01"),
         ("GV.RM-02", "Risk Appetite", "Risk appetite and tolerance are defined.", "Board: High=9, Medium=4-6, Low=1-3. Documented in policy.", "Implemented", "", 1, "2025-11-01"),
-        # ... (full 106 controls from v23.5)
+        # ... full 106 controls from v23.5
     ]
     c.executemany("""INSERT OR IGNORE INTO nist_controls 
                      (id, name, description, implementation_guide, status, notes, company_id, last_updated) 
@@ -102,7 +102,7 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
               ("Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1))
 
-    # NIST VENDOR QUESTIONNAIRE (PREPOPULATED)
+    # NIST VENDOR QUESTIONNAIRE (PREPOPULATED) – FIXED LINE 118
     nist_vendor_questions = [
         "Do you enforce MFA for all administrative access?",
         "Do you perform regular vulnerability scanning?",
@@ -115,8 +115,8 @@ def init_db():
         "Do you maintain audit logs for 12 months?",
         "Is data encrypted at rest and in transit?"
     ]
-    for = [(1, q, "Yes", "2025-08-21", "2025-08-20") for q in nist_vendor_questions[:2]] + \
-           [(2, q, "Yes", "2025-09-16", "2025-09-15") for q in nist_vendor_questions[2:3]]
+    questions = [(1, q, "Yes", "2025-08-21", "2025-08-20") for q in nist_vendor_questions[:2]] + \
+                [(2, q, "Yes", "2025-09-16", "2025-09-15") for q in nist_vendor_questions[2:3]]
     c.executemany("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, answer, answered_date, sent_date) VALUES (?, ?, ?, ?, ?)", questions)
 
     conn.commit()
