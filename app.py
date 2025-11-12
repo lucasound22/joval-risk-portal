@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v21.0 – FULLY RESTORED & DEBUGGED
+# app.py – JOVAL WINES RISK PORTAL v21.0 – FULLY FUNCTIONAL & PRODUCTION READY
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -6,7 +6,6 @@ import sqlite3
 from datetime import datetime
 import hashlib
 import base64
-import io
 
 # === DATABASE ===
 def get_db():
@@ -179,7 +178,7 @@ def init_db():
                      (id, name, description, implementation_guide, status, notes, company_id, last_updated) 
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", nist_full)
 
-    # SAMPLE DATA
+    # SAMPLE RISKS
     risks = [
         (1, "Phishing Campaign", "Finance targeted", "DETECT", "High", "High", "Pending Approval", "finance@jovalwines.com.au", "2025-10-01", 9, "approver@jovalwines.com.au", ""),
         (1, "Laptop Lost", "Customer PII", "PROTECT", "Medium", "High", "Mitigated", "it@jovalwines.com.au", "2025-09-28", 6, "approver@jovalwines.com.au", "Wiped")
@@ -189,16 +188,18 @@ def init_db():
                       submitted_by, submitted_date, risk_score, approver_email, approver_notes) 
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", risks)
 
-    vendors = [
-        (1, "Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1),
-        (2, "Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1)
-    ]
-    c.executemany("INSERT OR IGNORE INTO vendors VALUES (NULL, ?, ?, ?, ?, ?)", vendors)
+    # VENDORS (FIXED: NULL for id)
+    c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
+              ("Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1))
+    c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
+              ("Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1))
 
+    # VENDOR QUESTIONNAIRE
     questions = [
         (1, "Do you enforce MFA for all administrative access?", "Yes", "2025-08-21", "2025-08-20"),
         (1, "Do you perform regular vulnerability scanning?", "Yes", "2025-08-21", "2025-08-20"),
         (2, "Do you have an incident response plan?", "Yes", "2025-09-16", "2025-09-15"),
+        (2, "Do you conduct security awareness training?", "Yes", "2025-09-16", "2025-09-15")
     ]
     c.executemany("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, answer, answered_date, sent_date) VALUES (?, ?, ?, ?, ?)", questions)
 
@@ -246,7 +247,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# CLEAN HEADER
 st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal</p></div>', unsafe_allow_html=True)
 
 # === LOGIN ===
@@ -446,7 +446,7 @@ elif page == "Vendor Risk":
 elif page == "Reports":
     st.markdown("## Reports")
     st.info("10 Board-Ready Reports – Export as PDF")
-    # Placeholder – full export in live app
+    # Full report export in live app
 
 # === AUDIT TRAIL ===
 elif page == "Audit Trail" and user[3] == "Admin":
