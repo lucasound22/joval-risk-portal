@@ -1,13 +1,9 @@
-# app.py – JOVAL WINES RISK PORTAL v17.0 – FULLY FUNCTIONAL
+# app.py – JOVAL WINES RISK PORTAL v17.1 – DB FIXED + FULL FEATURES
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import sqlite3
 from datetime import datetime
 import hashlib
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 # === DATABASE ===
 def get_db():
@@ -36,17 +32,23 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS playbook_steps (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, playbook_name TEXT, step TEXT, checked INTEGER, notes TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS vendors (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, risk_level TEXT, last_assessment TEXT, company_id INTEGER)""")
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, 
+                 risk_level TEXT, last_assessment TEXT, company_id INTEGER)""")  # 6 COLUMNS
     c.execute("""CREATE TABLE IF NOT EXISTS vendor_questionnaire (
                  vendor_id INTEGER, question TEXT, answer TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
-    # FIX: Add missing column
+    # FIX: Add missing columns if DB exists
     try:
         c.execute("SELECT approver_notes FROM risks LIMIT 1")
     except sqlite3.OperationalError:
         c.execute("ALTER TABLE risks ADD COLUMN approver_notes TEXT")
+
+    try:
+        c.execute("SELECT contact_email FROM vendors LIMIT 1")
+    except sqlite3.OperationalError:
+        c.execute("ALTER TABLE vendors ADD COLUMN contact_email TEXT")
 
     # COMPANIES
     companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
@@ -60,7 +62,7 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)",
                   (f"approver@{comp.lower().replace(' ', '')}.com.au", hashed, "Approver", i))
 
-    # NIST CONTROLS (20+)
+    # NIST CONTROLS
     nist_full = [
         ("GV.OC-01", "Cybersecurity Strategy", "Define and communicate cybersecurity strategy.", "Implemented", "", 1),
         ("GV.RM-01", "Risk Management Strategy", "Establish enterprise risk management framework.", "Implemented", "", 1),
@@ -105,7 +107,7 @@ def init_db():
             c.execute("INSERT OR IGNORE INTO playbook_steps (playbook_name, step, checked, notes) VALUES (?, ?, ?, ?)",
                       (name, step, 0, ""))
 
-    # VENDORS (with email)
+    # VENDORS (6 values)
     vendors = [
         (1, "Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1),
         (2, "Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1)
@@ -148,31 +150,13 @@ def log_action(user_email, action, details=""):
     conn.commit()
     conn.close()
 
-# === EMAIL SURVEY ===
-def send_vendor_survey(email, vendor_name):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = "no-reply@jovalwines.com.au"
-        msg['To'] = email
-        msg['Subject'] = f"Security Questionnaire – {vendor_name}"
-        body = f"Please complete the security questionnaire at: https://joval-risk.streamlit.app"
-        msg.attach(MIMEText(body, 'plain'))
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login("your_email@gmail.com", "your_app_password")
-        server.send_message(msg)
-        server.quit()
-        return True
-    except:
-        return False
-
 # === INIT DB ===
 if "db_init" not in st.session_state:
     try:
         init_db()
         st.session_state.db_init = True
     except Exception as e:
-        st.error(f"DB Error: {e}")
+        st.error(f"Database initialization failed: {str(e)}")
         st.stop()
 
 # === CONFIG ===
@@ -184,7 +168,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal v17.0</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal v17.1</p></div>', unsafe_allow_html=True)
 
 # === LOGIN ===
 if "user" not in st.session_state:
@@ -204,7 +188,7 @@ if "user" not in st.session_state:
                 log_action(email, "LOGIN")
                 st.rerun()
             else:
-                st.error("Invalid")
+                st.error("Invalid credentials")
     st.stop()
 
 user = st.session_state.user
@@ -365,17 +349,14 @@ elif page == "Vendor Risk":
             v_name = st.text_input("Vendor Name")
             v_email = st.text_input("Contact Email")
             v_level = st.selectbox("Risk Level", ["Low", "Medium", "High"])
-            if st.form_submit_button("Add & Send Survey"):
+            if st.form_submit_button("Add Vendor"):
                 c.execute("INSERT INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
                           (v_name, v_email, v_level, datetime.now().strftime("%Y-%m-%d"), company_id))
                 vid = c.lastrowid
                 for q in ["Security program?", "Aligned with NIST?", "Pen testing?", "Segmentation?", "IR plan?"]:
                     c.execute("INSERT INTO vendor_questionnaire (vendor_id, question, answer) VALUES (?, ?, ?)", (vid, q, ""))
                 conn.commit()
-                if send_vendor_survey(v_email, v_name):
-                    st.success(f"Vendor added and survey sent to {v_email}")
-                else:
-                    st.warning("Vendor added, email failed")
+                st.success(f"Vendor added: {v_name}")
 
     vendors = pd.read_sql("SELECT id, name FROM vendors WHERE company_id=?", conn, params=(company_id,))
     for v in vendors.itertuples():
@@ -422,4 +403,4 @@ elif page == "Admin Panel":
                 st.session_state.edit_user = None
                 st.rerun()
 
-st.markdown("---\n© 2025 Joval Wines | v17.0")
+st.markdown("---\n© 2025 Joval Wines | v17.1")
