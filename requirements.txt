@@ -1,3 +1,6 @@
 streamlit
 pandas
+sqlite3
 plotly
+pdfkit
+jinja2
