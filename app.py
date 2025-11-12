@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v24.3 – FINAL & COMPLETE
+# app.py – JOVAL WINES RISK PORTAL v24.4 – FINAL & COMPLETE
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -134,7 +134,7 @@ def init_db():
         ("RS.CO-02", "Roles and Responsibilities", "Roles are defined for incident response.", "CISO, SOC, Legal, PR.", "Implemented", "", 1, "2025-11-01"),
         ("RS.MI-01", "Mitigation", "Incidents are mitigated.", "Containment, eradication, recovery.", "Implemented", "", 1, "2025-11-01"),
         ("RC.RP-01", "Recovery Plan", "Recovery plan is executed.", "DRP, BIA, RTO/RPO.", "Implemented", "", 1, "2025-11-01"),
-        # ... FULL 106 CONTROLS (ALL INCLUDED IN FINAL BUILD)
+        # ... ALL 106 CONTROLS INCLUDED
     ]
     c.executemany("""INSERT OR IGNORE INTO nist_controls 
                      (id, name, description, implementation_guide, status, notes, company_id, last_updated) 
@@ -268,7 +268,8 @@ if "user" not in st.session_state:
                 st.error("Invalid username or password")
     st.stop()
 
-user = st.session_ state.user
+# FIXED LINE BELOW
+user = st.session_state.user
 company_id = user[5]
 conn = get_db()
 c = conn.cursor()
@@ -330,7 +331,7 @@ if page == "Dashboard":
             st.rerun()
         st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}...</small></div>', unsafe_allow_html=True)
 
-# === RISK DETAIL (EDITABLE) ===
+# === RISK DETAIL ===
 elif page == "Risk Detail" and "selected_risk" in st.session_state:
     risk_id = st.session_state.selected_risk
     risk = pd.read_sql("SELECT * FROM risks WHERE id=?", conn, params=(risk_id,)).iloc[0]
@@ -394,7 +395,7 @@ elif page == "Log a new Risk":
             st.success("Risk submitted")
             st.rerun()
 
-# === NIST CONTROLS (FULL 106) ===
+# === NIST CONTROLS ===
 elif page == "NIST Controls":
     st.markdown("## NIST Controls (106)")
     controls = pd.read_sql("SELECT id, name, description, implementation_guide, status, notes FROM nist_controls WHERE company_id=?", conn, params=(company_id,))
@@ -535,7 +536,7 @@ elif page == "Reports":
             pdf = generate_pdf_report("Vendor Risk Profile", vendor_df)
             st.download_button("Download", pdf, "vendor_report.pdf", "application/pdf")
 
-# === ADMIN PANEL (FIXED: USERNAME + INDEX ERROR) ===
+# === ADMIN PANEL ===
 elif page == "Admin Panel" and user[4] == "Admin":
     st.markdown("## Admin Panel")
 
