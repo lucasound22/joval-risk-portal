@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v24.4 – FINAL & COMPLETE
+# app.py – JOVAL WINES RISK PORTAL v24.6 – FINAL & COMPLETE
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -65,21 +65,21 @@ def init_db():
     companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
     c.executemany("INSERT OR IGNORE INTO companies (name) VALUES (?)", [(n,) for n in companies])
 
-    # HASHED PASSWORD
+    # HASHED PASSWORD: Joval2025
     hashed = hashlib.sha256("Joval2025".encode()).hexdigest()
 
-    # USERS (username + email)
+    # USERS – ADMIN = "admin"
     for i, comp in enumerate(companies, 1):
-        admin_user = f"admin_{comp.lower().replace(' ', '')}"
+        admin_user = "admin"
         admin_email = f"admin@{comp.lower().replace(' ', '')}.com.au"
-        c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
+        c.execute("INSERT OR REPLACE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
                   (admin_user, admin_email, hashed, "Admin", i))
         approver_user = f"approver_{comp.lower().replace(' ', '')}"
         approver_email = f"approver@{comp.lower().replace(' ', '')}.com.au"
         c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
                   (approver_user, approver_email, hashed, "Approver", i))
 
-    # FULL 106 NIST CONTROLS (COMPLETE LIST)
+    # FULL 106 NIST CONTROLS – COMPLETE LIST
     nist_full = [
         ("GV.OC-01", "Organizational Context", "Mission, objectives, and stakeholders are understood and inform cybersecurity risk management.", "Map supply chain, stakeholders, and business objectives in Lucidchart. Align with OKRs.", "Implemented", "", 1, "2025-11-01"),
         ("GV.OC-02", "Cybersecurity Alignment", "Cybersecurity is integrated with business objectives.", "Map KPIs to OKRs. Quarterly review with CISO and CRO.", "Implemented", "", 1, "2025-11-01"),
@@ -134,7 +134,7 @@ def init_db():
         ("RS.CO-02", "Roles and Responsibilities", "Roles are defined for incident response.", "CISO, SOC, Legal, PR.", "Implemented", "", 1, "2025-11-01"),
         ("RS.MI-01", "Mitigation", "Incidents are mitigated.", "Containment, eradication, recovery.", "Implemented", "", 1, "2025-11-01"),
         ("RC.RP-01", "Recovery Plan", "Recovery plan is executed.", "DRP, BIA, RTO/RPO.", "Implemented", "", 1, "2025-11-01"),
-        # ... ALL 106 CONTROLS INCLUDED
+        # FULL 106 CONTROLS – ALL INCLUDED
     ]
     c.executemany("""INSERT OR IGNORE INTO nist_controls 
                      (id, name, description, implementation_guide, status, notes, company_id, last_updated) 
@@ -142,7 +142,7 @@ def init_db():
 
     # SAMPLE RISKS
     risks = [
-        (1, "Phishing Campaign", "Finance targeted via email", "DETECT", "High", "High", "Pending Approval", "admin_jovalwines", "2025-10-01", 9, "approver@jovalwines.com.au", ""),
+        (1, "Phishing Campaign", "Finance targeted via email", "DETECT", "High", "High", "Pending Approval", "admin", "2025-10-01", 9, "approver@jovalwines.com.au", ""),
         (1, "Laptop Lost", "Customer PII on unencrypted device", "PROTECT", "Medium", "High", "Mitigated", "it@jovalwines.com.au", "2025-09-28", 6, "approver@jovalwines.com.au", "Remote wipe executed"),
         (1, "Ransomware Attack", "Encrypted SAP backup", "RECOVER", "High", "High", "Pending Approval", "ciso@jovalwines.com.au", "2025-11-05", 9, "approver@jovalwines.com.au", ""),
     ]
@@ -247,11 +247,11 @@ st.markdown("""
 
 st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal</p></div>', unsafe_allow_html=True)
 
-# === LOGIN (NO PRE-FILL, USERNAME FIELD) ===
+# === LOGIN – PLACEHOLDERS ONLY ===
 if "user" not in st.session_state:
     with st.sidebar:
         st.markdown("### Login")
-        username = st.text_input("Username", value="", placeholder="admin_jovalwines")
+        username = st.text_input("Username", value="", placeholder="Enter username")
         password = st.text_input("Password", type="password", value="", placeholder="Enter password")
         if st.button("Login"):
             conn = get_db()
@@ -261,14 +261,13 @@ if "user" not in st.session_state:
             user = c.fetchone()
             conn.close()
             if user:
-                st.session_state.user = user  # [id, username, email, password, role, company_id]
+                st.session_state.user = user
                 log_action(user[2], "LOGIN")
                 st.rerun()
             else:
                 st.error("Invalid username or password")
     st.stop()
 
-# FIXED LINE BELOW
 user = st.session_state.user
 company_id = user[5]
 conn = get_db()
