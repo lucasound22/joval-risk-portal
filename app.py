@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v17.1 – FULLY WORKING
+# app.py – JOVAL WINES RISK PORTAL v18.0 – UAT COMPLETE
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -30,8 +30,6 @@ def init_db():
                  file_name TEXT, upload_date TEXT, uploaded_by TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS nist_controls (
                  id TEXT PRIMARY KEY, name TEXT, description TEXT, status TEXT, notes TEXT, company_id INTEGER)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS playbook_steps (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT, playbook_name TEXT, step TEXT, checked INTEGER, notes TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS vendors (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, 
                  risk_level TEXT, last_assessment TEXT, company_id INTEGER)""")
@@ -40,7 +38,7 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
-    # FIX: Add missing columns if DB exists
+    # FIX: Add missing columns
     try:
         c.execute("SELECT approver_notes FROM risks LIMIT 1")
     except sqlite3.OperationalError:
@@ -65,21 +63,21 @@ def init_db():
 
     # NIST CONTROLS
     nist_full = [
-        ("GV.OC-01", "Cybersecurity Strategy", "Define and communicate cybersecurity strategy.", "Implemented", "", 1),
-        ("GV.RM-01", "Risk Management Strategy", "Establish enterprise risk management framework.", "Implemented", "", 1),
-        ("GV.SC-01", "Supply Chain Risk", "Implement supply chain risk management program.", "Partial", "", 1),
-        ("ID.AM-01", "Asset Inventory", "Maintain inventory of hardware, software, and data.", "Implemented", "", 1),
-        ("ID.AM-05", "Data Classification", "Classify data based on sensitivity.", "Implemented", "", 1),
-        ("ID.RA-05", "Threat Identification", "Subscribe to threat intelligence.", "Partial", "", 1),
-        ("PR.AC-01", "Identity Management", "Implement MFA, RBAC.", "Implemented", "", 1),
-        ("PR.DS-05", "Data Encryption", "Encrypt data at rest and in transit.", "Implemented", "", 1),
-        ("PR.MA-01", "Patch Management", "Apply critical patches within 7 days.", "Implemented", "", 1),
-        ("PR.AT-01", "Awareness Training", "Annual training and phishing simulations.", "Implemented", "", 1),
-        ("DE.CM-01", "Continuous Monitoring", "Deploy SIEM with 24/7 alerting.", "Implemented", "", 1),
-        ("DE.AE-01", "Anomalous Activity", "Deploy UEBA.", "Partial", "", 1),
-        ("RS.MI-01", "Incident Response Plan", "Maintain tested IR plan.", "Partial", "", 1),
-        ("RS.CO-02", "Coordination", "Cross-functional IR team.", "Implemented", "", 1),
-        ("RC.RP-01", "Recovery Planning", "RPO < 4h, RTO < 8h.", "Implemented", "", 1),
+        ("GV.OC-01", "Cybersecurity Strategy", "Define and communicate cybersecurity strategy aligned with business objectives.", "Implemented", "", 1),
+        ("GV.RM-01", "Risk Management Strategy", "Establish enterprise risk management framework integrating cyber risks.", "Implemented", "", 1),
+        ("GV.SC-01", "Supply Chain Risk", "Implement supply chain risk management program with vendor assessments.", "Partial", "", 1),
+        ("ID.AM-01", "Asset Inventory", "Maintain inventory of hardware, software, and data assets.", "Implemented", "", 1),
+        ("ID.AM-05", "Data Classification", "Classify data based on sensitivity and business impact.", "Implemented", "", 1),
+        ("ID.RA-05", "Threat Identification", "Subscribe to threat intelligence and conduct threat modeling.", "Partial", "", 1),
+        ("PR.AC-01", "Identity Management", "Implement MFA, RBAC, and quarterly access reviews.", "Implemented", "", 1),
+        ("PR.DS-05", "Data Encryption", "Encrypt data at rest (AES-256) and in transit (TLS 1.3).", "Implemented", "", 1),
+        ("PR.MA-01", "Patch Management", "Apply critical patches within 7 days; use vulnerability scanning.", "Implemented", "", 1),
+        ("PR.AT-01", "Awareness Training", "Annual security training and quarterly phishing simulations.", "Implemented", "", 1),
+        ("DE.CM-01", "Continuous Monitoring", "Deploy SIEM with 24/7 alerting and log correlation.", "Implemented", "", 1),
+        ("DE.AE-01", "Anomalous Activity", "Deploy UEBA to detect insider threats and lateral movement.", "Partial", "", 1),
+        ("RS.MI-01", "Incident Response Plan", "Maintain tested IR plan with quarterly tabletop exercises.", "Partial", "", 1),
+        ("RS.CO-02", "Coordination", "Cross-functional IR team with IT, Legal, PR.", "Implemented", "", 1),
+        ("RC.RP-01", "Recovery Planning", "RPO < 4h, RTO < 8h, air-gapped backups.", "Implemented", "", 1),
         ("ID.BE-01", "Business Environment", "Identify critical processes.", "Implemented", "", 1),
         ("PR.IP-01", "Baseline Configuration", "Use CIS benchmarks.", "Implemented", "", 1),
         ("RS.AN-01", "Analysis", "Analyze incidents for root cause.", "Implemented", "", 1),
@@ -88,27 +86,7 @@ def init_db():
     ]
     c.executemany("INSERT OR IGNORE INTO nist_controls VALUES (?, ?, ?, ?, ?, ?)", nist_full)
 
-    # PLAYBOOKS
-    playbooks = {
-        "Ransomware Response": ["Isolate", "Preserve", "Activate IR", "Restore"],
-        "Phishing Attack": ["Quarantine", "Reset", "Scan", "Update"],
-        "Data Exfiltration": ["Block egress", "Preserve logs", "Notify APRA", "Enhance DLP"],
-        "Insider Threat": ["Revoke access", "Preserve logs", "HR investigation", "Update policy"],
-        "DDoS Attack": ["Activate Cloudflare", "Engage ISP", "Failover", "Capacity plan"],
-        "Physical Breach": ["Lock facility", "Preserve CCTV", "Audit access", "Update badges"],
-        "Cloud Misconfig": ["Block public S3", "Enable GuardDuty", "Scan with Prowler", "Train DevOps"],
-        "Zero-Day Exploit": ["Virtual patch", "Isolate system", "Monitor IOCs", "Apply patch"],
-        "Credential Stuffing": ["Enforce MFA", "Block IPs", "Reset passwords", "Dark web scan"],
-        "Supply Chain Attack": ["Isolate software", "Scan IOCs", "Notify vendor", "Update SLA"],
-        "Backup Failure": ["Restore from secondary", "RCA on Veeam", "Test integrity", "Update config"],
-        "API Abuse": ["Rate limit", "Audit logs", "Rotate keys", "Enable WAF"]
-    }
-    for name, steps in playbooks.items():
-        for step in steps:
-            c.execute("INSERT OR IGNORE INTO playbook_steps (playbook_name, step, checked, notes) VALUES (?, ?, ?, ?)",
-                      (name, step, 0, ""))
-
-    # VENDORS (6 values)
+    # VENDORS
     vendors = [
         (1, "Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1),
         (2, "Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1)
@@ -127,7 +105,7 @@ def init_db():
     ]
     c.executemany("INSERT OR IGNORE INTO vendor_questionnaire VALUES (?, ?, ?)", questions)
 
-    # RISKS (13 values)
+    # RISKS
     risks = [
         (1, "Phishing Campaign", "Finance targeted", "DETECT", "High", "High", "Pending Approval", "finance@jovalwines.com.au", "2025-10-01", 9, "approver@jovalwines.com.au", ""),
         (2, "Laptop Lost", "Customer PII", "PROTECT", "Medium", "High", "Mitigated", "it@jovalfamilywines.com.au", "2025-09-28", 6, "approver@jovalfamilywines.com.au", "Wiped"),
@@ -151,16 +129,16 @@ def log_action(user_email, action, details=""):
     conn.commit()
     conn.close()
 
-# === INIT DB SAFELY ===
+# === INIT DB ===
 if "db_init" not in st.session_state:
     try:
         init_db()
         st.session_state.db_init = True
     except Exception as e:
-        st.error(f"Database initialization failed: {str(e)}")
+        st.error(f"Database Error: {str(e)}")
         st.stop()
 
-# === APP CONFIG ===
+# === CONFIG ===
 st.set_page_config(page_title="Joval Risk Portal", layout="wide")
 st.markdown("""
 <style>
@@ -169,7 +147,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal v17.1</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="header"><h1>JOVAL WINES</h1><p>Risk Management Portal v18.0</p></div>', unsafe_allow_html=True)
 
 # === LOGIN ===
 if "user" not in st.session_state:
@@ -199,15 +177,21 @@ c = conn.cursor()
 c.execute("SELECT name FROM companies WHERE id=?", (company_id,))
 company_name = c.fetchone()[0]
 
-# === SIDEBAR NAV ===
+# === SIDEBAR ===
 with st.sidebar:
     st.markdown(f"**{user[1].split('@')[0]}** • {company_name}")
     st.markdown("---")
-    pages = ["Dashboard", "Log a new Risk", "NIST Controls", "Evidence Vault", "Playbooks", "Reports", "Vendor Risk", "Audit Trail", "Admin Panel"]
+    pages = ["Dashboard", "Log a new Risk", "NIST Controls", "Evidence Vault", 
+             "Playbooks", "Reports", "Vendor Risk", "Audit Trail", "Admin Panel"]
+    if user[3] == "Approver":
+        pages.insert(1, "My Approvals")
     for p in pages:
-        if st.button(p, key=f"nav_{p}"):
-            st.session_state.page = p
-            st.rerun()
+        if p == "Playbooks":
+            st.markdown(f"[**Playbooks →** ↗](https://joval-wines-nist-playbook-tracker.streamlit.app/)")
+        else:
+            if st.button(p, key=f"nav_{p}"):
+                st.session_state.page = p
+                st.rerun()
 
 page = st.session_state.get("page", "Dashboard")
 
@@ -220,7 +204,6 @@ if page == "Dashboard":
     with col3: st.markdown('<div class="metric-card"><h2>42</h2><p>Evidence Files</p></div>', unsafe_allow_html=True)
     with col4: st.markdown('<div class="metric-card"><h2>12</h2><p>Vendors</p></div>', unsafe_allow_html=True)
 
-    # Risk Heatmap
     risks = pd.read_sql("SELECT likelihood, impact, COUNT(*) as count FROM risks GROUP BY likelihood, impact", conn)
     if not risks.empty:
         risks['likelihood'] = risks['likelihood'].map({"Low":1, "Medium":2, "High":3})
@@ -239,7 +222,32 @@ if page == "Dashboard":
             st.session_state.page = "Log a new Risk"
             st.rerun()
 
-# === LOG A NEW RISK ===
+# === MY APPROVALS (APPROVER ONLY) ===
+elif page == "My Approvals" and user[3] == "Approver":
+    st.markdown("## My Approvals")
+    risks = pd.read_sql("SELECT * FROM risks WHERE approver_email=? AND status='Pending Approval'", conn, params=(user[1],))
+    for _, r in risks.iterrows():
+        with st.expander(f"{r['title']} - Score: {r['risk_score']}"):
+            st.write(f"**Description**: {r['description']}")
+            st.write(f"**Category**: {r['category']} | **Likelihood**: {r['likelihood']} | **Impact**: {r['impact']}")
+            notes = st.text_area("Approver Notes", r['approver_notes'] or "", key=f"notes_{r['id']}")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Approve", key=f"approve_{r['id']}"):
+                    c.execute("UPDATE risks SET status='Mitigated', approver_notes=? WHERE id=?", (notes, r['id']))
+                    conn.commit()
+                    log_action(user[1], "RISK_APPROVED", f"ID: {r['id']}")
+                    st.success("Approved")
+                    st.rerun()
+            with col2:
+                if st.button("Reject", key=f"reject_{r['id']}"):
+                    c.execute("UPDATE risks SET status='Open', approver_notes=? WHERE id=?", (notes, r['id']))
+                    conn.commit()
+                    log_action(user[1], "RISK_REJECTED", f"ID: {r['id']}")
+                    st.success("Rejected")
+                    st.rerun()
+
+# === LOG A NEW RISK / EDIT RISK ===
 elif page == "Log a new Risk":
     st.markdown("## Risk Management")
     if st.session_state.get("selected_risk"):
@@ -247,14 +255,24 @@ elif page == "Log a new Risk":
         risk = c.fetchone()
         st.markdown(f"### Editing: {risk[2]}")
         with st.form("edit_risk"):
-            status = st.selectbox("Status", ["Open", "Pending Approval", "Mitigated", "Closed"], 
-                                index=["Open", "Pending Approval", "Mitigated", "Closed"].index(risk[7]))
-            notes = st.text_area("Approver Notes", risk[12] or "")
-            if st.form_submit_button("Update"):
-                c.execute("UPDATE risks SET status=?, approver_notes=? WHERE id=?", (status, notes, risk[0]))
+            title = st.text_input("Title", risk[2])
+            desc = st.text_area("Description", risk[3])
+            category = st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"], 
+                                  index=["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"].index(risk[4]))
+            likelihood = st.selectbox("Likelihood", ["Low", "Medium", "High"], 
+                                    index=["Low", "Medium", "High"].index(risk[5]))
+            impact = st.selectbox("Impact", ["Low", "Medium", "High"], 
+                                index=["Low", "Medium", "High"].index(risk[6]))
+            approver = st.selectbox("Approver", [f"approver@{c.lower().replace(' ', '')}.com.au" for c in ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]],
+                                  index=[f"approver@{c.lower().replace(' ', '')}.com.au" for c in ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]].index(risk[11]))
+            if st.form_submit_button("Update Risk"):
+                score = {"Low":1, "Medium":2, "High":3}[likelihood] * {"Low":1, "Medium":2, "High":3}[impact]
+                c.execute("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, 
+                             risk_score=?, approver_email=? WHERE id=?""",
+                          (title, desc, category, likelihood, impact, score, approver, risk[0]))
                 conn.commit()
-                log_action(user[1], "RISK_UPDATED", f"ID: {risk[0]}")
-                st.success("Updated")
+                log_action(user[1], "RISK_EDITED", f"ID: {risk[0]}")
+                st.success("Risk updated")
                 st.session_state.selected_risk = None
                 st.rerun()
     else:
@@ -315,23 +333,6 @@ elif page == "Evidence Vault":
         log_action(user[1], "EVIDENCE_UPLOADED", f"File: {uploaded.name}")
         st.success("Uploaded")
 
-# === PLAYBOOKS ===
-elif page == "Playbooks":
-    st.markdown("## Response Playbooks")
-    pbs = pd.read_sql("SELECT DISTINCT playbook_name FROM playbook_steps", conn)
-    for pb in pbs["playbook_name"]:
-        with st.expander(pb):
-            steps = pd.read_sql("SELECT id, step, checked, notes FROM playbook_steps WHERE playbook_name=?", conn, params=(pb,))
-            for _, s in steps.iterrows():
-                col1, col2 = st.columns([4,1])
-                with col1: st.checkbox(s["step"], value=bool(s["checked"]), key=f"chk_{s['id']}")
-                with col2: st.text_input("", s["notes"] or "", key=f"note_{s['id']}")
-                if st.button("Save", key=f"save_pb_{s['id']}"):
-                    c.execute("UPDATE playbook_steps SET checked=?, notes=? WHERE id=?", 
-                              (int(st.session_state[f"chk_{s['id']}"]), st.session_state[f"note_{s['id']}"], s['id']))
-                    conn.commit()
-                    log_action(user[1], "PLAYBOOK_UPDATED", f"Step: {s['step'][:20]}...")
-
 # === REPORTS ===
 elif page == "Reports":
     st.markdown("## Reports")
@@ -343,9 +344,8 @@ elif page == "Reports":
         "5. Vendor Risk Levels": "SELECT name, risk_level FROM vendors WHERE company_id = ?",
         "6. Evidence by Risk": "SELECT r.title, e.file_name FROM evidence e JOIN risks r ON e.risk_id = r.id",
         "7. Audit Trail (Last 7 Days)": "SELECT * FROM audit_trail WHERE timestamp >= date('now', '-7 days') ORDER BY id DESC",
-        "8. Playbook Completion": "SELECT playbook_name, COUNT(checked) AS completed, (SELECT COUNT(*) FROM playbook_steps WHERE playbook_name = p.playbook_name) AS total FROM playbook_steps p WHERE checked = 1 GROUP BY playbook_name",
-        "9. Risks by Category": "SELECT category, COUNT(*) AS count FROM risks GROUP BY category",
-        "10. User Activity": "SELECT user_email, COUNT(*) AS actions FROM audit_trail GROUP BY user_email ORDER BY actions DESC"
+        "8. Risks by Category": "SELECT category, COUNT(*) AS count FROM risks GROUP BY category",
+        "9. User Activity": "SELECT user_email, COUNT(*) AS actions FROM audit_trail GROUP BY user_email ORDER BY actions DESC"
     }
     for name, query in reports.items():
         if st.button(name):
@@ -392,8 +392,6 @@ elif page == "Audit Trail":
 # === ADMIN PANEL ===
 elif page == "Admin Panel":
     st.markdown("## Admin Panel")
-    
-    # ADD NEW USER
     with st.expander("Add New User"):
         with st.form("add_user"):
             email = st.text_input("Email")
@@ -402,7 +400,7 @@ elif page == "Admin Panel":
             companies = st.multiselect("Assign to Companies", ["Joval Wines", "Joval Family Wines", "BNV", "BAM"])
             if st.form_submit_button("Create User"):
                 if not email or not password:
-                    st.error("Email and password required")
+                    st.error("Required")
                 else:
                     hashed = hashlib.sha256(password.encode()).hexdigest()
                     for comp in companies:
@@ -414,7 +412,6 @@ elif page == "Admin Panel":
                     log_action(user[1], "USER_CREATED", f"Email: {email}")
                     st.success("User created")
 
-    # EDIT USERS
     users = pd.read_sql("SELECT u.id, u.email, u.role, c.name FROM users u JOIN companies c ON u.company_id=c.id", conn)
     for _, u in users.iterrows():
         if st.button(f"{u['email']} - {u['role']} ({u['name']})", key=f"user_{u['id']}"):
@@ -439,4 +436,4 @@ elif page == "Admin Panel":
                 st.session_state.edit_user = None
                 st.rerun()
 
-st.markdown("---\n© 2025 Joval Wines | v17.1")
+st.markdown("---\n© 2025 Joval Wines | v18.0")
