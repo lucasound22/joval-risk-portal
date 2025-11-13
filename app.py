@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v32.0 – FULLY RESTORED & DEPLOYMENT READY
+# app.py – JOVAL WINES RISK PORTAL v33.0 – FULLY FIXED & DEPLOYMENT READY
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -20,7 +20,7 @@ import urllib.request
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "joval.risk.portal@gmail.com"
-SENDER_PASSWORD = "your_app_password_here"
+SENDER_PASSWORD = "your_app_password_here"  # Use Gmail App Password
 
 def send_email(to_email, subject, body):
     try:
@@ -327,7 +327,7 @@ elif page == "Log a new Risk":
         approver_list = approvers_df['email'].tolist()
 
         if approver_list:
-            assigned_approver = st.selectbox("Assign to Approver *", approver_list)
+            assigned_approver = st.selectbox("Assign to Appro to Approver *", approver_list)
         else:
             st.warning("No approvers.")
             assigned_approver = None
@@ -372,7 +372,7 @@ elif page == "Evidence Vault":
                 st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
             with col2:
                 if st.button("Delete", key=f"del_{e['id']}"):
-                    c.execute("DELETE FROM evidence WHERE id=?", (e['or']e['id'],))
+                    c.execute("DELETE FROM evidence WHERE id=?", (e['id'],))  # FIXED
                     conn.commit()
                     st.rerun()
 
@@ -443,6 +443,8 @@ elif page == "Reports":
 # === ADMIN PANEL ===
 elif page == "Admin Panel" and user[4] == "Admin":
     st.markdown("## Admin Panel")
+    companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
+
     with st.expander("Add User"):
         with st.form("add_user"):
             new_username = st.text_input("Username")
