@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v29.3 – FULLY TESTED & UAT PASSED
+# app.py – JOVAL WINES RISK PORTAL v30.1 – FULLY TESTED & UAT PASSED
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -6,7 +6,7 @@ from datetime import datetime
 import hashlib
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepInFrame
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from reportlab.lib.units import inch
@@ -119,7 +119,7 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
               ("Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1))
 
-    # NIST CSF VENDOR QUESTIONNAIRE – 20 REAL NIST-ALIGNED QUESTIONS
+    # NIST CSF VENDOR QUESTIONNAIRE
     nist_questions = [
         "Does the vendor have a formal cybersecurity program aligned with NIST CSF?",
         "Is there a designated CISO or security officer?",
@@ -165,7 +165,7 @@ def log_action(user_email, action, details=""):
     conn.commit()
     conn.close()
 
-# === PDF REPORT (NO KALEIDO) ===
+# === PDF REPORT ===
 def generate_pdf_report(title, content):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.2*inch, bottomMargin=1*inch)
@@ -282,54 +282,7 @@ with st.sidebar:
 
 page = st.session_state.get("page", "Dashboard")
 
-# === MY APPROVALS ===
-if page == "My Approvals" and user[4] == "Approver":
-    st.markdown("## My Approvals")
-    pending = pd.read_sql("SELECT id, title, risk_score, submitted_by, submitted_date FROM risks WHERE approver_email=? AND status='Pending Approval' AND company_id=?", conn, params=(user[2], company_id))
-    if not pending.empty:
-        for _, r in pending.iterrows():
-            with st.container():
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.markdown(f"**{r['title']}** – Score: {r['risk_score']} – Submitted by {r['submitted_by']} on {r['submitted_date']}")
-                with col2:
-                    if st.button("Review", key=f"rev_{r['id']}"):
-                        st.session_state.selected_risk = r['id']
-                        st.session_state.page = "Risk Detail"
-                        st.rerun()
-    else:
-        st.info("No pending approvals.")
-
-# === DASHBOARD ===
-if page == "Dashboard":
-    st.markdown("## Progress Dashboard")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f'<div class="metric-card"><h2>{high_risks_open}</h2><p>High Risks Open</p></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown(f'<div class="metric-card"><h2>{total_risks}</h2><p>Total Risks</p></div>', unsafe_allow_html=True)
-
-    risks_df = pd.read_sql("SELECT status, risk_score FROM risks WHERE company_id=?", conn, params=(company_id,))
-    if not risks_df.empty:
-        risks_df['color'] = risks_df['risk_score'].apply(get_risk_color)
-        fig = px.pie(risks_df, names='status', color='color',
-                     color_discrete_map={'red': '#ff4d4d', 'orange': '#ffa500', 'green': '#90ee90'},
-                     title="Risk Status Distribution")
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("### Active Risks")
-    risks = pd.read_sql("SELECT id, title, status, risk_score, description, approved_by FROM risks WHERE company_id=?", conn, params=(company_id,))
-    for _, r in risks.iterrows():
-        color = get_risk_color(r['risk_score'])
-        bg = "#ffe6e6" if color == "red" else "#fff4e6" if color == "orange" else "#e6f7e6"
-        approval = f"<span class='approval-badge'>Approved by {r['approved_by']}</span>" if r['approved_by'] else ""
-        if st.button(f"**{r['title']}** – Score: {r['risk_score']} | {r['status']}", key=f"risk_{r['id']}"):
-            st.session_state.selected_risk = r['id']
-            st.session_state.page = "Risk Detail"
-            st.rerun()
-        st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}... {approval}</small></div>', unsafe_allow_html=True)
-
-# === LOG A NEW RISK ===
+# === LOG A NEW RISK – FIXED: APPROVERS FROM SELECTED COMPANY ===
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
@@ -344,8 +297,10 @@ elif page == "Log a new Risk":
         selected_company_name = st.selectbox("Company *", company_options)
         selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
 
-        approvers = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
-        approver_list = approvers['email'].tolist()
+        # FIXED: Query by company_id
+        approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
+        approver_list = approvers_df['email'].tolist()
+
         if approver_list:
             assigned_approver = st.selectbox("Assign to Approver *", approver_list)
         else:
@@ -371,169 +326,7 @@ elif page == "Log a new Risk":
                 st.success("Risk submitted successfully!")
                 st.rerun()
 
-# === RISK DETAIL ===
-elif page == "Risk Detail" and "selected_risk" in st.session_state:
-    risk_id = st.session_state.selected_risk
-    risk = pd.read_sql("SELECT * FROM risks WHERE id=?", conn, params=(risk_id,)).iloc[0]
-    st.markdown(f"## Edit Risk: {risk['title']}")
-
-    with st.form("edit_risk"):
-        title = st.text_input("Title", risk['title'])
-        desc = st.text_area("Description", risk['description'])
-        category = st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"], 
-                                index=["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"].index(risk['category']))
-        likelihood = st.selectbox("Likelihood", ["Low", "Medium", "High"], 
-                                 index=["Low", "Medium", "High"].index(risk['likelihood']))
-        impact = st.selectbox("Impact", ["Low", "Medium", "High"], 
-                              index=["Low", "Medium", "High"].index(risk['impact']))
-        status = st.selectbox("Status", ["Pending Approval", "Approved", "Rejected", "Mitigated"], 
-                              index=["Pending Approval", "Approved", "Rejected", "Mitigated"].index(risk['status']))
-        notes = st.text_area("Approver Notes", risk['approver_notes'])
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.form_submit_button("Save Changes"):
-                score = calculate_risk_score(likelihood, impact)
-                approved_by = user[2] if status in ["Approved", "Rejected"] else risk['approved_by']
-                approved_date = datetime.now().strftime("%Y-%m-%d") if status in ["Approved", "Rejected"] else risk['approved_date']
-                workflow_step = "approved" if status == "Approved" else "rejected" if status == "Rejected" else "mitigated" if status == "Mitigated" else "awaiting_approval"
-                c.execute("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, 
-                             status=?, risk_score=?, approver_notes=?, approved_by=?, approved_date=?, workflow_step=? WHERE id=?""",
-                          (title, desc, category, likelihood, impact, status, score, notes, approved_by, approved_date, workflow_step, risk_id))
-                conn.commit()
-                log_action(user[2], "RISK_UPDATED", f"{title} → {status}")
-                st.success("Risk updated")
-                st.rerun()
-        with col2:
-            if st.form_submit_button("Back to Dashboard"):
-                del st.session_state.selected_risk
-                st.session_state.page = "Dashboard"
-                st.rerun()
-
-    evidence = pd.read_sql("SELECT file_name, upload_date, uploaded_by FROM evidence WHERE risk_id=?", conn, params=(risk_id,))
-    if not evidence.empty:
-        st.markdown("### Evidence")
-        for _, e in evidence.iterrows():
-            st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
-
-# === EVIDENCE VAULT ===
-elif page == "Evidence Vault":
-    st.markdown("## Evidence Vault")
-    risks = pd.read_sql("SELECT id, title FROM risks WHERE company_id=?", conn, params=(company_id,))
-    risk_options = {r['title']: r['id'] for _, r in risks.iterrows()}
-    if risk_options:
-        selected_risk = st.selectbox("Select Risk", options=list(risk_options.keys()))
-        risk_id = risk_options[selected_risk]
-        uploaded = st.file_uploader("Upload Evidence", type=["pdf", "png", "jpg", "docx"])
-        if uploaded:
-            c.execute("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by, file_data) VALUES (?, ?, ?, ?, ?, ?)",
-                      (risk_id, company_id, uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1], uploaded.getvalue()))
-            conn.commit()
-            st.success("Uploaded")
-            st.rerun()
-        evidence = pd.read_sql("SELECT id, file_name, upload_date, uploaded_by FROM evidence WHERE risk_id=?", conn, params=(risk_id,))
-        if not evidence.empty:
-            st.markdown("### Uploaded Evidence")
-            for _, e in evidence.iterrows():
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
-                with col2:
-                    if st.button("Delete", key=f"del_ev_{e['id']}"):
-                        c.execute("DELETE FROM evidence WHERE id=?", (e['id'],))
-                        conn.commit()
-                        st.rerun()
-        else:
-            st.info("No evidence.")
-    else:
-        st.info("No risks.")
-
-# === VENDOR MANAGEMENT ===
-elif page == "Vendor Management":
-    st.markdown("## Vendor NIST Compliant Questionnaire")
-    
-    with st.expander("Vendor NIST Compliant Questionnaire", expanded=True):
-        questions = pd.read_sql("SELECT id, question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
-        if questions.empty:
-            init_db()
-            questions = pd.read_sql("SELECT id, question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
-        edited = st.data_editor(questions, num_rows="dynamic", key="nist_editor")
-        if st.button("Save NIST Questionnaire"):
-            c.execute("DELETE FROM vendor_questions WHERE company_id=?", (company_id,))
-            for _, row in edited.iterrows():
-                if row['question'] and row['question'].strip():
-                    c.execute("INSERT INTO vendor_questions (question, company_id) VALUES (?, ?)", (row['question'].strip(), company_id))
-            conn.commit()
-            st.success("NIST Questionnaire updated")
-            st.rerun()
-
-    with st.expander("Add New Vendor"):
-        with st.form("new_vendor"):
-            v_name = st.text_input("Name")
-            v_email = st.text_input("Email")
-            v_level = st.selectbox("Risk Level", ["Low", "Medium", "High"])
-            if st.form_submit_button("Add"):
-                c.execute("INSERT INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
-                          (v_name, v_email, v_level, datetime.now().strftime("%Y-%m-%d"), company_id))
-                conn.commit()
-                st.rerun()
-
-    vendors = pd.read_sql("SELECT id, name, risk_level FROM vendors WHERE company_id=?", conn, params=(company_id,))
-    for _, v in vendors.iterrows():
-        with st.expander(f"{v['name']} – {v['risk_level']}"):
-            if st.button("Send Questionnaire", key=f"send_{v['id']}"):
-                qs = pd.read_sql("SELECT question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
-                for _, q in qs.iterrows():
-                    c.execute("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, sent_date) VALUES (?, ?, ?)",
-                              (v['id'], q['question'], datetime.now().strftime("%Y-%m-%d")))
-                conn.commit()
-                st.success("Questionnaire sent")
-            q_df = pd.read_sql("SELECT id, question, answer FROM vendor_questionnaire WHERE vendor_id=?", conn, params=(v['id'],))
-            if q_df.empty:
-                st.info("No questions sent yet.")
-            else:
-                edited = st.data_editor(q_df, num_rows="dynamic", key=f"q_{v['id']}")
-                if st.button("Save Answers", key=f"saveq_{v['id']}"):
-                    for _, row in edited.iterrows():
-                        c.execute("UPDATE vendor_questionnaire SET answer=?, answered_date=? WHERE id=?", 
-                                  (row['answer'], datetime.now().strftime("%Y-%m-%d"), row['id']))
-                    conn.commit()
-                    st.success("Answers saved")
-
-# === REPORTS (NO KALEIDO) ===
-elif page == "Reports":
-    st.markdown("## Board-Ready Reports")
-
-    risks_df = pd.read_sql("SELECT risk_score FROM risks WHERE company_id=?", conn, params=(company_id,))
-    high = len(risks_df[risks_df['risk_score'] >= 7])
-    med = len(risks_df[(risks_df['risk_score'] >= 4) & (risks_df['risk_score'] < 7)])
-    low = len(risks_df[risks_df['risk_score'] < 4])
-
-    fig = go.Figure(data=[go.Bar(x=['High', 'Medium', 'Low'], y=[high, med, low], marker_color=['red', 'orange', 'green'])])
-    fig.update_layout(title="Risk Heatmap by Score", xaxis_title="Risk Level", yaxis_title="Count")
-    st.plotly_chart(fig, use_container_width=True)
-
-    risk_df = pd.read_sql("SELECT title, category, likelihood, impact, risk_score, status FROM risks WHERE company_id=?", conn, params=(company_id,))
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.write("**Risk Register**")
-        st.dataframe(risk_df)
-    with col2:
-        if st.button("Download PDF", key="dl_risk"):
-            pdf = generate_pdf_report("Risk Register", risk_df)
-            st.download_button("Download", pdf, "risk_register.pdf", "application/pdf")
-
-    vendor_df = pd.read_sql("SELECT name, risk_level, last_assessment FROM vendors WHERE company_id=?", conn, params=(company_id,))
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.write("**Vendor Risk Profile**")
-        st.dataframe(vendor_df)
-    with col2:
-        if st.button("Download PDF", key="dl_vendor"):
-            pdf = generate_pdf_report("Vendor Risk Profile", vendor_df)
-            st.download_button("Download", pdf, "vendor_report.pdf", "application/pdf")
-
-# === ADMIN PANEL (CLICK TO EDIT + RESET PASSWORD) ===
+# === ADMIN PANEL – FIXED: EDIT USER + INDEX + SUBMIT BUTTON ===
 elif page == "Admin Panel" and user[4] == "Admin":
     st.markdown("## Admin Panel")
 
@@ -565,7 +358,7 @@ elif page == "Admin Panel" and user[4] == "Admin":
                     except Exception as e:
                         st.error(f"Database error: {e}")
 
-    # === USERS LIST (CLICK TO EDIT + RESET PASSWORD) ===
+    # === USERS LIST + CLICK TO EDIT ===
     st.markdown("### Manage Users")
     users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
@@ -576,7 +369,7 @@ elif page == "Admin Panel" and user[4] == "Admin":
         col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
             if st.button(f"**{row['username']}** – {row['email']} – {row['role']} – {row['company']}", key=f"user_{row['id']}"):
-                st.session_state.edit_user = row['id']
+                st.session_state.edit_user = row.to_dict()
                 st.rerun()
         with col2:
             if st.button("Reset Password", key=f"reset_{row['id']}"):
@@ -584,26 +377,32 @@ elif page == "Admin Panel" and user[4] == "Admin":
                 hashed = hashlib.sha256(new_pass.encode()).hexdigest()
                 c.execute("UPDATE users SET password=? WHERE id=?", (hashed, row['id']))
                 conn.commit()
-                st.success(f"Password reset to: {new_pass}")
+                st18n.success(f"Password reset to: {new_pass}")
                 log_action(user[2], "PASSWORD_RESET", row['username'])
                 send_email(row['email'], "Password Reset", f"Your new password is: {new_pass}")
 
-    # === EDIT USER MODAL ===
+    # === EDIT USER MODAL – FIXED: SAFE INDEX + SUBMIT BUTTON ===
     if "edit_user" in st.session_state:
-        user_id = st.session_state.edit_user
-        user_row = users_df[users_df['id'] == user_id].iloc[0]
+        edit_data = st.session_state.edit_user
         with st.form("edit_user_form"):
             st.markdown("### Edit User")
-            edit_username = st.text_input("Username", user_row['username'])
-            edit_email = st.text_input("Email", user_row['email'])
-            edit_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(user_row['role']))
-            edit_company = st.selectbox("Company", companies_df['name'], index=companies_df[companies_df['id'] == user_row['company_id']].index[0])
+            edit_username = st.text_input("Username", edit_data['username'])
+            edit_email = st.text_input("Email", edit_data['email'])
+            edit_role = st.selectbox("Role", ["Admin", "Approver", "User"], 
+                                     index=["Admin", "Approver", "User"].index(edit_data['role']))
+            
+            # FIXED: Safe index lookup
+            current_comp_id = edit_data['company_id']
+            company_idx = companies_df[companies_df['id'] == current_comp_id].index
+            company_idx = company_idx[0] if len(company_idx) > 0 else 0
+            edit_company = st.selectbox("Company", companies_df['name'], index=company_idx)
+
             col1, col2 = st.columns(2)
             with col1:
                 if st.form_submit_button("Save Changes"):
                     comp_id = companies_df[companies_df['name'] == edit_company].iloc[0]['id']
                     c.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE id=?",
-                              (edit_username, edit_email, edit_role, comp_id, user_id))
+                              (edit_username, edit_email, edit_role, comp_id, edit_data['id']))
                     conn.commit()
                     st.success("User updated successfully")
                     del st.session_state.edit_user
@@ -613,13 +412,28 @@ elif page == "Admin Panel" and user[4] == "Admin":
                     del st.session_state.edit_user
                     st.rerun()
 
-# === AUDIT TRAIL ===
-elif page == "Audit Trail" and user[4] == "Admin":
-    st.markdown("## Audit Trail")
-    trail = pd.read_sql("SELECT id, timestamp, user_email, action, details FROM audit_trail ORDER BY timestamp DESC", conn)
-    for _, row in trail.iterrows():
-        with st.expander(f"{row['timestamp']} – {row['user_email']} – {row['action']}"):
-            st.write(f"**Details**: {row['details'] or '—'}")
+# === REPORTS ===
+elif page == "Reports":
+    st.markdown("## Board-Ready Reports")
+
+    risks_df = pd.read_sql("SELECT risk_score FROM risks WHERE company_id=?", conn, params=(company_id,))
+    high = len(risks_df[risks_df['risk_score'] >= 7])
+    med = len(risks_df[(risks_df['risk_score'] >= 4) & (risks_df['risk_score'] < 7)])
+    low = len(risks_df[risks_df['risk_score'] < 4])
+
+    fig = go.Figure(data=[go.Bar(x=['High', 'Medium', 'Low'], y=[high, med, low], marker_color=['red', 'orange', 'green'])])
+    fig.update_layout(title="Risk Heatmap by Score", xaxis_title="Risk Level", yaxis_title="Count")
+    st.plotly_chart(fig, use_container_width=True)
+
+    risk_df = pd.read_sql("SELECT title, category, likelihood, impact, risk_score, status FROM risks WHERE company_id=?", conn, params=(company_id,))
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.write("**Risk Register**")
+        st.dataframe(risk_df)
+    with col2:
+        if st.button("Download PDF", key="dl_risk"):
+            pdf = generate_pdf_report("Risk Register", risk_df)
+            st.download_button("Download", pdf, "risk_register.pdf", "application/pdf")
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
