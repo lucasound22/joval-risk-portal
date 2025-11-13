@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v31.0 – FULL DEPLOYMENT READY
+# app.py – JOVAL WINES RISK PORTAL v32.0 – FULLY RESTORED & DEPLOYMENT READY
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -16,11 +16,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import urllib.request
 
-# === EMAIL CONFIG (UPDATE BEFORE DEPLOY) ===
+# === EMAIL CONFIG ===
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "joval.risk.portal@gmail.com"
-SENDER_PASSWORD = "your_app_password_here"  # Use Gmail App Password
+SENDER_PASSWORD = "your_app_password_here"
 
 def send_email(to_email, subject, body):
     try:
@@ -45,7 +45,6 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # TABLES
     c.execute("""CREATE TABLE IF NOT EXISTS companies (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
     c.execute("""CREATE TABLE IF NOT EXISTS users (
@@ -72,7 +71,6 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
-    # ADD COLUMNS SAFELY
     for sql in [
         "ALTER TABLE evidence ADD COLUMN file_data BLOB",
         "ALTER TABLE risks ADD COLUMN approved_by TEXT",
@@ -82,14 +80,11 @@ def init_db():
         try: c.execute(sql)
         except sqlite3.OperationalError: pass
 
-    # COMPANIES
     companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
     c.executemany("INSERT OR IGNORE INTO companies (name) VALUES (?)", [(n,) for n in companies])
 
-    # DEFAULT PASSWORD
     hashed = hashlib.sha256("Joval2025".encode()).hexdigest()
 
-    # USERS
     for i, comp in enumerate(companies, 1):
         admin_email = f"admin@{comp.lower().replace(' ', '')}.com.au"
         c.execute("INSERT OR REPLACE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
@@ -98,20 +93,17 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
                   (f"approver_{comp.lower().replace(' ', '')}", approver_email, hashed, "Approver", i))
 
-    # SAMPLE RISK
     risks = [
-        (1, "Phishing Campaign", "Finance targeted via email", "DETECT", "High", "High", "Pending Approval", "admin", "2025-10-01", 9, "approver@jovalwines.com.au", "", None, None, "awaiting_approval"),
+        (1, "Phishing Campaign", "Finance targeted", "DETECT", "High", "High", "Pending Approval", "admin", "2025-10-01", 9, "approver@jovalwines.com.au", "", None, None, "awaiting_approval"),
     ]
     c.executemany("""INSERT OR IGNORE INTO risks 
                      (company_id, title, description, category, likelihood, impact, status, 
                       submitted_by, submitted_date, risk_score, approver_email, approver_notes, approved_by, approved_date, workflow_step) 
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", risks)
 
-    # VENDOR
     c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
               ("Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1))
 
-    # NIST QUESTIONS
     nist_questions = [
         "Does the vendor have a formal cybersecurity program aligned with NIST CSF?",
         "Is there a designated CISO or security officer?",
@@ -176,7 +168,7 @@ def generate_pdf_report(title, content):
     buffer.seek(0)
     return buffer
 
-# === INIT DB ===
+# === INIT ===
 if "db_init" not in st.session_state:
     init_db()
     st.session_state.db_init = True
@@ -188,6 +180,8 @@ st.markdown("""
     .header {background: #1a1a1a; color: white; padding: 2rem; text-align: center;}
     .header h1 {font-weight: normal !important; margin:0;}
     .metric-card {background: white; padding: 1.5rem; border-radius: 12px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+    .clickable-risk {cursor: pointer; padding: 0.75rem; border-radius: 8px; margin: 0.25rem 0;}
+    .approval-badge {background: #e6f7ff; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -252,6 +246,68 @@ if page == "Dashboard":
     with col2:
         st.markdown(f'<div class="metric-card"><h2>{total_risks}</h2><p>Total Risks</p></div>', unsafe_allow_html=True)
 
+    risks = pd.read_sql("SELECT id, title, status, risk_score, description, approved_by FROM risks WHERE company_id=?", conn, params=(company_id,))
+    for _, r in risks.iterrows():
+        color = get_risk_color(r['risk_score'])
+        bg = "#ffe6e6" if color == "red" else "#fff4e6" if color == "orange" else "#e6f7e6"
+        approval = f"<span class='approval-badge'>Approved by {r['approved_by']}</span>" if r['approved_by'] else ""
+        if st.button(f"**{r['title']}** – Score: {r['risk_score']} | {r['status']}", key=f"risk_{r['id']}"):
+            st.session_state.selected_risk = r['id']
+            st.session_state.page = "Risk Detail"
+            st.rerun()
+        st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}... {approval}</small></div>', unsafe_allow_html=True)
+
+# === MY APPROVALS ===
+elif page == "My Approvals" and user[4] == "Approver":
+    st.markdown("## My Approvals")
+    pending = pd.read_sql("SELECT id, title, risk_score, submitted_by, submitted_date FROM risks WHERE approver_email=? AND status='Pending Approval' AND company_id=?", conn, params=(user[2], company_id))
+    for _, r in pending.iterrows():
+        if st.button(f"**{r['title']}** – Score: {r['risk_score']} – {r['submitted_by']} on {r['submitted_date']}", key=f"rev_{r['id']}"):
+            st.session_state.selected_risk = r['id']
+            st.session_state.page = "Risk Detail"
+            st.rerun()
+
+# === RISK DETAIL ===
+elif page == "Risk Detail" and "selected_risk" in st.session_state:
+    risk_id = st.session_state.selected_risk
+    risk = pd.read_sql("SELECT * FROM risks WHERE id=?", conn, params=(risk_id,)).iloc[0]
+    st.markdown(f"## Edit Risk: {risk['title']}")
+
+    with st.form("edit_risk"):
+        title = st.text_input("Title", risk['title'])
+        desc = st.text_area("Description", risk['description'])
+        category = st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"], index=["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"].index(risk['category']))
+        likelihood = st.selectbox("Likelihood", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(risk['likelihood']))
+        impact = st.selectbox("Impact", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(risk['impact']))
+        status = st.selectbox("Status", ["Pending Approval", "Approved", "Rejected", "Mitigated"], index=["Pending Approval", "Approved", "Rejected", "Mitigated"].index(risk['status']))
+        notes = st.text_area("Approver Notes", risk['approver_notes'])
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("Save Changes"):
+                score = calculate_risk_score(likelihood, impact)
+                approved_by = user[2] if status in ["Approved", "Rejected"] else risk['approved_by']
+                approved_date = datetime.now().strftime("%Y-%m-%d") if status in ["Approved", "Rejected"] else risk['approved_date']
+                workflow_step = "approved" if status == "Approved" else "rejected" if status == "Rejected" else "mitigated" if status == "Mitigated" else "awaiting_approval"
+                c.execute("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, 
+                             status=?, risk_score=?, approver_notes=?, approved_by=?, approved_date=?, workflow_step=? WHERE id=?""",
+                          (title, desc, category, likelihood, impact, status, score, notes, approved_by, approved_date, workflow_step, risk_id))
+                conn.commit()
+                log_action(user[2], "RISK_UPDATED", f"{title} → {status}")
+                st.success("Risk updated")
+                st.rerun()
+        with col2:
+            if st.form_submit_button("Back"):
+                del st.session_state.selected_risk
+                st.session_state.page = "Dashboard"
+                st.rerun()
+
+    evidence = pd.read_sql("SELECT file_name, upload_date, uploaded_by FROM evidence WHERE risk_id=?", conn, params=(risk_id,))
+    if not evidence.empty:
+        st.markdown("### Evidence")
+        for _, e in evidence.iterrows():
+            st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
+
 # === LOG A NEW RISK ===
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
@@ -273,13 +329,13 @@ elif page == "Log a new Risk":
         if approver_list:
             assigned_approver = st.selectbox("Assign to Approver *", approver_list)
         else:
-            st.warning("No approvers in selected company.")
+            st.warning("No approvers.")
             assigned_approver = None
 
         submitted = st.form_submit_button("Submit Risk")
         if submitted:
             if not all([title, desc, assigned_approver]):
-                st.error("Please fill all required fields.")
+                st.error("Fill all fields.")
             else:
                 score = calculate_risk_score(likelihood, impact)
                 c.execute("""INSERT INTO risks 
@@ -290,84 +346,82 @@ elif page == "Log a new Risk":
                            user[1], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval"))
                 conn.commit()
                 log_action(user[2], "RISK_SUBMITTED", title)
-                send_email(assigned_approver, "New Risk Assigned", f"Risk: {title}\nSubmitted by: {user[2]}")
-                st.success("Risk submitted!")
+                send_email(assigned_approver, "New Risk", f"Title: {title}\nBy: {user[2]}")
+                st.success("Submitted!")
                 st.rerun()
 
-# === ADMIN PANEL ===
-elif page == "Admin Panel" and user[4] == "Admin":
-    st.markdown("## Admin Panel")
-
-    # ADD USER
-    with st.expander("Add New User"):
-        with st.form("add_user"):
-            new_username = st.text_input("Username")
-            new_email = st.text_input("Email")
-            new_password = st.text_input("Password", type="password")
-            new_role = st.selectbox("Role", ["Admin", "Approver", "User"])
-            new_company = st.selectbox("Company", companies_df['name'])
-            if st.form_submit_button("Create"):
-                if not all([new_username, new_email, new_password]):
-                    st.error("All fields required.")
-                else:
-                    hashed = hashlib.sha256(new_password.encode()).hexdigest()
-                    comp_id = companies_df[companies_df['name'] == new_company].iloc[0]['id']
-                    c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
-                              (new_username, new_email, hashed, new_role, comp_id))
-                    conn.commit()
-                    if c.rowcount > 0:
-                        st.success(f"User {new_username} created.")
-                    else:
-                        st.warning("User exists.")
-                    st.rerun()
-
-    # EDIT USER
-    st.markdown("### Users")
-    users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
-    comp_map = dict(zip(companies_df['id'], companies_df['name']))
-    users_df['company'] = users_df['company_id'].map(comp_map)
-
-    for _, row in users_df.iterrows():
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            if st.button(f"**{row['username']}** – {row['email']} – {row['role']} – {row['company']}", key=f"user_{row['id']}"):
-                st.session_state.edit_user = row.to_dict()
-                st.rerun()
-        with col2:
-            if st.button("Reset Password", key=f"reset_{row['id']}"):
-                new_pass = "Joval2025"
-                hashed = hashlib.sha256(new_pass.encode()).hexdigest()
-                c.execute("UPDATE users SET password=? WHERE id=?", (hashed, row['id']))
-                conn.commit()
-                st.success(f"Password reset to: {new_pass}")
-                send_email(row['email'], "Password Reset", f"New password: {new_pass}")
-
-    if "edit_user" in st.session_state:
-        edit_data = st.session_state.edit_user
-        with st.form("edit_user_form"):
-            edit_username = st.text_input("Username", edit_data['username'])
-            edit_email = st.text_input("Email", edit_data['email'])
-            edit_role = st.selectbox("Role", ["Admin", "Approver", "User"], 
-                                     index=["Admin", "Approver", "User"].index(edit_data['role']))
-            current_comp_id = edit_data['company_id']
-            company_idx = companies_df[companies_df['id'] == current_comp_id].index
-            company_idx = company_idx[0] if len(company_idx) > 0 else 0
-            edit_company = st.selectbox("Company", companies_df['name'], index=company_idx)
-
-            col1, col2 = st.columns(2)
+# === EVIDENCE VAULT ===
+elif page == "Evidence Vault":
+    st.markdown("## Evidence Vault")
+    risks = pd.read_sql("SELECT id, title FROM risks WHERE company_id=?", conn, params=(company_id,))
+    risk_options = {r['title']: r['id'] for _, r in risks.iterrows()}
+    if risk_options:
+        selected_risk = st.selectbox("Select Risk", list(risk_options.keys()))
+        risk_id = risk_options[selected_risk]
+        uploaded = st.file_uploader("Upload Evidence", type=["pdf", "png", "jpg", "docx"])
+        if uploaded:
+            c.execute("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by, file_data) VALUES (?, ?, ?, ?, ?, ?)",
+                      (risk_id, company_id, uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1], uploaded.getvalue()))
+            conn.commit()
+            st.success("Uploaded")
+            st.rerun()
+        evidence = pd.read_sql("SELECT id, file_name, upload_date, uploaded_by FROM evidence WHERE risk_id=?", conn, params=(risk_id,))
+        for _, e in evidence.iterrows():
+            col1, col2 = st.columns([3, 1])
             with col1:
-                if st.form_submit_button("Save Changes"):
-                    comp_id = companies_df[companies_df['name'] == edit_company].iloc[0]['id']
-                    c.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE id=?",
-                              (edit_username, edit_email, edit_role, comp_id, edit_data['id']))
-                    conn.commit()
-                    st.success("User updated")
-                    del st.session_state.edit_user
-                    st.rerun()
+                st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
             with col2:
-                if st.form_submit_button("Cancel"):
-                    del st.session_state.edit_user
+                if st.button("Delete", key=f"del_{e['id']}"):
+                    c.execute("DELETE FROM evidence WHERE id=?", (e['or']e['id'],))
+                    conn.commit()
                     st.rerun()
+
+# === VENDOR MANAGEMENT ===
+elif page == "Vendor Management":
+    st.markdown("## Vendor NIST Questionnaire")
+    with st.expander("NIST Questions", expanded=True):
+        questions = pd.read_sql("SELECT id, question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
+        if questions.empty:
+            init_db()
+            questions = pd.read_sql("SELECT id, question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
+        edited = st.data_editor(questions, num_rows="dynamic")
+        if st.button("Save Questions"):
+            c.execute("DELETE FROM vendor_questions WHERE company_id=?", (company_id,))
+            for _, row in edited.iterrows():
+                if row['question']: c.execute("INSERT INTO vendor_questions (question, company_id) VALUES (?, ?)", (row['question'], company_id))
+            conn.commit()
+            st.rerun()
+
+    with st.expander("Add Vendor"):
+        with st.form("new_vendor"):
+            v_name = st.text_input("Name")
+            v_email = st.text_input("Email")
+            v_level = st.selectbox("Risk Level", ["Low", "Medium", "High"])
+            if st.form_submit_button("Add"):
+                c.execute("INSERT INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
+                          (v_name, v_email, v_level, datetime.now().strftime("%Y-%m-%d"), company_id))
+                conn.commit()
+                st.rerun()
+
+    vendors = pd.read_sql("SELECT id, name, risk_level FROM vendors WHERE company_id=?", conn, params=(company_id,))
+    for _, v in vendors.iterrows():
+        with st.expander(f"{v['name']} – {v['risk_level']}"):
+            if st.button("Send Questionnaire", key=f"send_{v['id']}"):
+                qs = pd.read_sql("SELECT question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
+                for _, q in qs.iterrows():
+                    c.execute("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, sent_date) VALUES (?, ?, ?)",
+                              (v['id'], q['question'], datetime.now().strftime("%Y-%m-%d")))
+                conn.commit()
+                st.success("Sent")
+            q_df = pd.read_sql("SELECT id, question, answer FROM vendor_questionnaire WHERE vendor_id=?", conn, params=(v['id'],))
+            if not q_df.empty:
+                edited = st.data_editor(q_df, num_rows="dynamic", key=f"q_{v['id']}")
+                if st.button("Save Answers", key=f"saveq_{v['id']}"):
+                    for _, row in edited.iterrows():
+                        c.execute("UPDATE vendor_questionnaire SET answer=?, answered_date=? WHERE id=?", 
+                                  (row['answer'], datetime.now().strftime("%Y-%m-%d"), row['id']))
+                    conn.commit()
+                    st.success("Saved")
 
 # === REPORTS ===
 elif page == "Reports":
@@ -382,9 +436,83 @@ elif page == "Reports":
     st.plotly_chart(fig, use_container_width=True)
 
     risk_df = pd.read_sql("SELECT title, category, likelihood, impact, risk_score, status FROM risks WHERE company_id=?", conn, params=(company_id,))
-    if st.button("Download PDF"):
+    if st.button("Download Risk Register"):
         pdf = generate_pdf_report("Risk Register", risk_df)
-        st.download_button("Download PDF", pdf, "risk_register.pdf", "application/pdf")
+        st.download_button("Download", pdf, "risk_register.pdf", "application/pdf")
+
+# === ADMIN PANEL ===
+elif page == "Admin Panel" and user[4] == "Admin":
+    st.markdown("## Admin Panel")
+    with st.expander("Add User"):
+        with st.form("add_user"):
+            new_username = st.text_input("Username")
+            new_email = st.text_input("Email")
+            new_password = st.text_input("Password", type="password")
+            new_role = st.selectbox("Role", ["Admin", "Approver", "User"])
+            new_company = st.selectbox("Company", companies_df['name'])
+            if st.form_submit_button("Create"):
+                if not all([new_username, new_email, new_password]):
+                    st.error("Required")
+                else:
+                    hashed = hashlib.sha256(new_password.encode()).hexdigest()
+                    comp_id = companies_df[companies_df['name'] == new_company].iloc[0]['id']
+                    c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
+                              (new_username, new_email, hashed, new_role, comp_id))
+                    conn.commit()
+                    st.success("Created")
+                    st.rerun()
+
+    users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
+    comp_map = dict(zip(companies_df['id'], companies_df['name']))
+    users_df['company'] = users_df['company_id'].map(comp_map)
+
+    for _, row in users_df.iterrows():
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.button(f"**{row['username']}** – {row['email']} – {row['role']} – {row['company']}", key=f"user_{row['id']}"):
+                st.session_state.edit_user = row.to_dict()
+                st.rerun()
+        with col2:
+            if st.button("Reset", key=f"reset_{row['id']}"):
+                new_pass = "Joval2025"
+                hashed = hashlib.sha256(new_pass.encode()).hexdigest()
+                c.execute("UPDATE users SET password=? WHERE id=?", (hashed, row['id']))
+                conn.commit()
+                st.success(f"Reset to: {new_pass}")
+                send_email(row['email'], "Password Reset", f"New: {new_pass}")
+
+    if "edit_user" in st.session_state:
+        edit_data = st.session_state.edit_user
+        with st.form("edit_user_form"):
+            edit_username = st.text_input("Username", edit_data['username'])
+            edit_email = st.text_input("Email", edit_data['email'])
+            edit_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(edit_data['role']))
+            current_comp_id = edit_data['company_id']
+            company_idx = companies_df[companies_df['id'] == current_comp_id].index[0] if len(companies_df[companies_df['id'] == current_comp_id]) > 0 else 0
+            edit_company = st.selectbox("Company", companies_df['name'], index=company_idx)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.form_submit_button("Save"):
+                    comp_id = companies_df[companies_df['name'] == edit_company].iloc[0]['id']
+                    c.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE id=?",
+                              (edit_username, edit_email, edit_role, comp_id, edit_data['id']))
+                    conn.commit()
+                    st.success("Updated")
+                    del st.session_state.edit_user
+                    st.rerun()
+            with col2:
+                if st.form_submit_button("Cancel"):
+                    del st.session_state.edit_user
+                    st.rerun()
+
+# === AUDIT TRAIL ===
+elif page == "Audit Trail" and user[4] == "Admin":
+    st.markdown("## Audit Trail")
+    trail = pd.read_sql("SELECT timestamp, user_email, action, details FROM audit_trail ORDER BY timestamp DESC", conn)
+    for _, row in trail.iterrows():
+        with st.expander(f"{row['timestamp']} – {row['user_email']} – {row['action']}"):
+            st.write(row['details'] or "—")
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
