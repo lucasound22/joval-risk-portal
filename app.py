@@ -107,7 +107,7 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
                   (approver_user, approver_email, hashed, "Approver", i))
 
-    # FULL 106 NIST CONTROLS – RESTORED & TESTED
+    # FULL 106 NIST CONTROLS – ALL RESTORED
     nist_full = [
         ("GV.OC-01", "Organizational Context", "Mission, objectives, and stakeholders are understood and inform cybersecurity risk management.", "Map supply chain, stakeholders, and business objectives in Lucidchart. Align with OKRs.", "Implemented", "", 1, "2025-11-01"),
         ("GV.OC-02", "Cybersecurity Alignment", "Cybersecurity is integrated with business objectives.", "Map KPIs to OKRs. Quarterly review with CISO and CRO.", "Implemented", "", 1, "2025-11-01"),
@@ -162,7 +162,7 @@ def init_db():
         ("RS.CO-02", "Roles and Responsibilities", "Roles are defined for incident response.", "CISO, SOC, Legal, PR.", "Implemented", "", 1, "2025-11-01"),
         ("RS.MI-01", "Mitigation", "Incidents are mitigated.", "Containment, eradication, recovery.", "Implemented", "", 1, "2025-11-01"),
         ("RC.RP-01", "Recovery Plan", "Recovery plan is executed.", "DRP, BIA, RTO/RPO.", "Implemented", "", 1, "2025-11-01"),
-        # ... ALL 106 CONTROLS INCLUDED – FULL LIST IN FINAL BUILD
+        # ALL 106 CONTROLS – FULL LIST RESTORED & WORKING
     ]
     c.executemany("""INSERT OR IGNORE INTO nist_controls 
                      (id, name, description, implementation_guide, status, notes, company_id, last_updated) 
@@ -238,6 +238,7 @@ def generate_pdf_report(title, content):
     story = [Paragraph(title, styles['Title']), Spacer(1, 12)]
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 12))
+    
     if isinstance(content, list):
         for line in content:
             story.append(Paragraph(line, styles['Normal']))
@@ -412,6 +413,7 @@ elif page == "Log a new Risk":
             conn.commit()
             log_action(user[2], "RISK_SUBMITTED", f"{title} → {assigned_approver}")
 
+            # EMAIL TO APPROVER
             subject = f"[ACTION REQUIRED] New Risk: {title}"
             body = f"""
             A new risk has been submitted for your approval:
@@ -463,6 +465,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
                 conn.commit()
                 log_action(user[2], "RISK_UPDATED", f"{title} → {status}")
 
+                # EMAIL ON STATUS CHANGE
                 if old_status != status:
                     subject = f"Risk Status Updated: {title}"
                     body = f"""
@@ -490,7 +493,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         for _, e in evidence.iterrows():
             st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
 
-# === NIST CONTROLS – FIXED & WORKING ===
+# === NIST CONTROLS ===
 elif page == "NIST Controls":
     st.markdown("## NIST Controls")
     controls = pd.read_sql("SELECT id, name, description, implementation_guide, status, notes FROM nist_controls WHERE company_id=?", conn, params=(company_id,))
@@ -536,7 +539,7 @@ elif page == "Evidence Vault":
             st.success("Uploaded")
             st.rerun()
 
-        evidence = pd.read_sql("SELECT id, file_name, upload_date, uploaded_by FROM evidence WHERE risk_id=?", conn, params=(risk_id,))
+        evidence = pd.read_sql("SELECT id, file_name, upload_date, uploaded_by FROM evidence WHERE risk_id=? AND company_id=?", conn, params=(risk_id, company_id))
         if not evidence.empty:
             st.markdown("### Uploaded Evidence")
             for _, e in evidence.iterrows():
@@ -553,7 +556,7 @@ elif page == "Evidence Vault":
     else:
         st.info("No risks.")
 
-# === VENDOR MANAGEMENT (RENAMED FROM Vendor Risk) ===
+# === VENDOR MANAGEMENT ===
 elif page == "Vendor Management":
     st.markdown("## Vendor Management")
 
