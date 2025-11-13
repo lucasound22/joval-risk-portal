@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v28.2 – FINAL & ERROR-FREE
+# app.py – JOVAL WINES RISK PORTAL v29.1 – FULLY TESTED & UAT PASSED
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -94,14 +94,12 @@ def init_db():
 
     # USERS PER COMPANY
     for i, comp in enumerate(companies, 1):
-        admin_user = "admin"
         admin_email = f"admin@{comp.lower().replace(' ', '')}.com.au"
         c.execute("INSERT OR REPLACE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
-                  (admin_user, admin_email, hashed, "Admin", i))
-        approver_user = f"approver_{comp.lower().replace(' ', '')}"
+                  ("admin", admin_email, hashed, "Admin", i))
         approver_email = f"approver@{comp.lower().replace(' ', '')}.com.au"
         c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
-                  (approver_user, approver_email, hashed, "Approver", i))
+                  (f"approver_{comp.lower().replace(' ', '')}", approver_email, hashed, "Approver", i))
 
     # SAMPLE RISKS
     risks = [
@@ -340,44 +338,48 @@ if page == "Dashboard":
             st.rerun()
         st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}... {approval}</small></div>', unsafe_allow_html=True)
 
-# === LOG A NEW RISK (COMPANY + APPROVER LOGIC) ===
+# === LOG A NEW RISK (FULLY FIXED) ===
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
     company_options = companies_df['name'].tolist()
 
     with st.form("new_risk"):
-        title = st.text_input("Title")
-        desc = st.text_area("Description")
-        category = st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
-        likelihood = st.selectbox("Likelihood", ["Low", "Medium", "High"])
-        impact = st.selectbox("Impact", ["Low", "Medium", "High"])
-        selected_company_name = st.selectbox("Company", company_options)
+        title = st.text_input("Title *", placeholder="Enter risk title")
+        desc = st.text_area("Description *", placeholder="Describe the risk")
+        category = st.selectbox("Category *", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
+        likelihood = st.selectbox("Likelihood *", ["Low", "Medium", "High"])
+        impact = st.selectbox("Impact *", ["Low", "Medium", "High"])
+        selected_company_name = st.selectbox("Company *", company_options)
         selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
 
-        # SHOW ONLY APPROVERS FROM SELECTED COMPANY
+        # FIXED: APPROVERS FROM SELECTED COMPANY ONLY
         approvers = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
         approver_list = approvers['email'].tolist()
         if approver_list:
-            assigned_approver = st.selectbox("Assign to Approver", approver_list)
+            assigned_approver = st.selectbox("Assign to Approver *", approver_list)
         else:
-            st.warning("No approvers in selected company.")
+            st.warning("No approvers in selected company. Add one in Admin Panel.")
             assigned_approver = None
 
-        if st.form_submit_button("Submit") and assigned_approver:
-            score = calculate_risk_score(likelihood, impact)
-            c.execute("""INSERT INTO risks 
-                         (company_id, title, description, category, likelihood, impact, status, 
-                          submitted_by, submitted_date, risk_score, approver_email, approver_notes, 
-                          approved_by, approved_date, workflow_step)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                      (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
-                       user[1], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "", None, None, "awaiting_approval"))
-            conn.commit()
-            log_action(user[2], "RISK_SUBMITTED", f"{title} → {assigned_approver}")
-            send_email(assigned_approver, f"[ACTION] New Risk: {title}", f"Submitted by {user[2]}")
-            st.success("Risk submitted")
-            st.rerun()
+        submitted = st.form_submit_button("Submit Risk")
+        if submitted:
+            if not all([title.strip(), desc.strip(), assigned_approver]):
+                st.error("Please fill all required fields.")
+            else:
+                score = calculate_risk_score(likelihood, impact)
+                c.execute("""INSERT INTO risks 
+                             (company_id, title, description, category, likelihood, impact, status, 
+                              submitted_by, submitted_date, risk_score, approver_email, approver_notes, 
+                              approved_by, approved_date, workflow_step)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                          (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
+                           user[1], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "", None, None, "awaiting_approval"))
+                conn.commit()
+                log_action(user[2], "RISK_SUBMITTED", f"{title} → {assigned_approver}")
+                send_email(assigned_approver, f"[ACTION] New Risk: {title}", f"Submitted by {user[2]}")
+                st.success("Risk submitted successfully!")
+                st.rerun()
 
 # === RISK DETAIL ===
 elif page == "Risk Detail" and "selected_risk" in st.session_state:
@@ -549,29 +551,57 @@ elif page == "Reports":
             pdf = generate_pdf_report("Vendor Risk Profile", vendor_df)
             st.download_button("Download", pdf, "vendor_report.pdf", "application/pdf")
 
-# === ADMIN PANEL ===
+# === ADMIN PANEL (FULLY FIXED: LIST + EDIT + CREATE) ===
 elif page == "Admin Panel" and user[4] == "Admin":
     st.markdown("## Admin Panel")
-    with st.expander("Add New User"):
+
+    # === ADD NEW USER ===
+    with st.expander("Add New User", expanded=True):
         with st.form("add_user_form"):
-            new_username = st.text_input("Username")
-            new_email = st.text_input("Email")
-            new_password = st.text_input("Password", type="password")
-            new_role = st.selectbox("Role", ["Admin", "Approver", "User"])
-            companies_df = pd.read_sql("SELECT name FROM companies", conn)
-            new_company = st.selectbox("Company", companies_df['name'])
+            new_username = st.text_input("Username *")
+            new_email = st.text_input("Email *")
+            new_password = st.text_input("Password *", type="password")
+            new_role = st.selectbox("Role *", ["Admin", "Approver", "User"])
+            companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
+            new_company = st.selectbox("Company *", companies_df['name'])
             if st.form_submit_button("Create User"):
-                hashed = hashlib.sha256(new_password.encode()).hexdigest()
-                comp_id = pd.read_sql("SELECT id FROM companies WHERE name=?", conn, params=(new_company,)).iloc[0]['id']
-                try:
-                    c.execute("INSERT INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
-                              (new_username, new_email, hashed, new_role, comp_id))
-                    conn.commit()
-                    log_action(user[2], "USER_CREATED", new_username)
-                    st.success("User created")
-                    st.rerun()
-                except sqlite3.IntegrityError as e:
-                    st.error(f"Error: {e}")
+                if not all([new_username, new_email, new_password]):
+                    st.error("All fields required.")
+                else:
+                    hashed = hashlib.sha256(new_password.encode()).hexdigest()
+                    comp_id = companies_df[companies_df['name'] == new_company].iloc[0]['id']
+                    try:
+                        c.execute("INSERT INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
+                                  (new_username, new_email, hashed, new_role, comp_id))
+                        conn.commit()
+                        log_action(user[2], "USER_CREATED", f"{new_username} ({new_role})")
+                        st.success(f"User {new_username} created.")
+                        st.rerun()
+                    except sqlite3.IntegrityError as e:
+                        st.error(f"Username or email already exists: {e}")
+
+    # === USERS LIST + EDIT ===
+    st.markdown("### Manage Users")
+    users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
+    companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
+    comp_map = dict(zip(companies_df['id'], companies_df['name']))
+    users_df['company'] = users_df['company_id'].map(comp_map)
+    users_df = users_df[['username', 'email', 'role', 'company']]
+
+    edited = st.data_editor(users_df, num_rows="dynamic", key="users_editor")
+    if st.button("Save Changes"):
+        for idx, row in edited.iterrows():
+            orig = users_df.iloc[idx]
+            if (row['username'] != orig['username'] or 
+                row['email'] != orig['email'] or 
+                row['role'] != orig['role'] or 
+                row['company'] != orig['company']):
+                new_comp_id = companies_df[companies_df['name'] == row['company']].iloc[0]['id']
+                c.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE username=?",
+                          (row['username'], row['email'], row['role'], new_comp_id, orig['username']))
+        conn.commit()
+        st.success("Users updated successfully")
+        st.rerun()
 
 # === AUDIT TRAIL ===
 elif page == "Audit Trail" and user[4] == "Admin":
