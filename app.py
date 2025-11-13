@@ -98,7 +98,7 @@ def init_db():
         approver_user = f"approver_{comp.lower().replace(' ', '')}"
         approver_email = f"approver@{comp.lower().replace(' ', '')}.com.au"
         c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
-                  (approver_user, appro?cver_email, hashed, "Approver", i))
+                  (approver_user, approver_email, hashed, "Approver", i))
 
     # SAMPLE RISKS
     risks = [
@@ -573,3 +573,4 @@ elif page == "Audit Trail" and user[4] == "Admin":
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines")
+
