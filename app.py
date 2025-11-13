@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v33.0 – FULLY FIXED & DEPLOYMENT READY
+# app.py – JOVAL WINES RISK PORTAL v35.0 – FULL PRODUCTION VERSION
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -94,7 +94,7 @@ def init_db():
                   (f"approver_{comp.lower().replace(' ', '')}", approver_email, hashed, "Approver", i))
 
     risks = [
-        (1, "Phishing Campaign", "Finance targeted", "DETECT", "High", "High", "Pending Approval", "admin", "2025-10-01", 9, "approver@jovalwines.com.au", "", None, None, "awaiting_approval"),
+        (1, "Phishing Campaign", "Finance targeted via email", "DETECT", "High", "High", "Pending Approval", "admin", "2025-10-01", 9, "approver@jovalwines.com.au", "", None, None, "awaiting_approval"),
     ]
     c.executemany("""INSERT OR IGNORE INTO risks 
                      (company_id, title, description, category, likelihood, impact, status, 
@@ -327,7 +327,7 @@ elif page == "Log a new Risk":
         approver_list = approvers_df['email'].tolist()
 
         if approver_list:
-            assigned_approver = st.selectbox("Assign to Appro to Approver *", approver_list)
+            assigned_approver = st.selectbox("Assign to Approver *", approver_list)
         else:
             st.warning("No approvers.")
             assigned_approver = None
@@ -353,28 +353,47 @@ elif page == "Log a new Risk":
 # === EVIDENCE VAULT ===
 elif page == "Evidence Vault":
     st.markdown("## Evidence Vault")
+
     risks = pd.read_sql("SELECT id, title FROM risks WHERE company_id=?", conn, params=(company_id,))
-    risk_options = {r['title']: r['id'] for _, r in risks.iterrows()}
-    if risk_options:
-        selected_risk = st.selectbox("Select Risk", list(risk_options.keys()))
-        risk_id = risk_options[selected_risk]
-        uploaded = st.file_uploader("Upload Evidence", type=["pdf", "png", "jpg", "docx"])
+
+    if risks.empty:
+        st.info("No risks logged yet.")
+        if st.button("Log a New Risk", type="primary"):
+            st.session_state.page = "Log a new Risk"
+            st.rerun()
+    else:
+        risk_options = {row['title']: row['id'] for _, row in risks.iterrows()}
+        selected_risk_title = st.selectbox("Select Risk", options=list(risk_options.keys()))
+        risk_id = risk_options[selected_risk_title]
+
+        uploaded = st.file_uploader("Upload Evidence", type=["pdf", "png", "jpg", "jpeg", "docx", "txt"], key="upload")
         if uploaded:
-            c.execute("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by, file_data) VALUES (?, ?, ?, ?, ?, ?)",
+            c.execute("""INSERT INTO evidence 
+                         (risk_id, company_id, file_name, upload_date, uploaded_by, file_data) 
+                         VALUES (?, ?, ?, ?, ?, ?)""",
                       (risk_id, company_id, uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1], uploaded.getvalue()))
             conn.commit()
-            st.success("Uploaded")
+            st.success(f"Uploaded: {uploaded.name}")
             st.rerun()
-        evidence = pd.read_sql("SELECT id, file_name, upload_date, uploaded_by FROM evidence WHERE risk_id=?", conn, params=(risk_id,))
-        for _, e in evidence.iterrows():
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
-            with col2:
-                if st.button("Delete", key=f"del_{e['id']}"):
-                    c.execute("DELETE FROM evidence WHERE id=?", (e['id'],))  # FIXED
-                    conn.commit()
-                    st.rerun()
+
+        evidence = pd.read_sql("""SELECT id, file_name, upload_date, uploaded_by, file_data 
+                                  FROM evidence WHERE risk_id=?""", conn, params=(risk_id,))
+        if not evidence.empty:
+            st.markdown("### Uploaded Evidence")
+            for _, e in evidence.iterrows():
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    st.write(f"**{e['file_name']}**")
+                    st.caption(f"Uploaded by {e['uploaded_by']} on {e['upload_date']}")
+                with col2:
+                    st.download_button("Download", data=e['file_data'], file_name=e['file_name'], key=f"dl_{e['id']}")
+                with col3:
+                    if st.button("Delete", key=f"del_{e['id']}"):
+                        c.execute("DELETE FROM evidence WHERE id=?", (e['id'],))
+                        conn.commit()
+                        st.rerun()
+        else:
+            st.info("No evidence uploaded for this risk yet.")
 
 # === VENDOR MANAGEMENT ===
 elif page == "Vendor Management":
