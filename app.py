@@ -806,30 +806,42 @@ elif page == "Reports":
     st.markdown("## Board-Ready Reports")
     exec_lines = [f"NIST Compliance: {nist_compliance}%", f"High Risks Open: {high_risks_open}"]
     col1, col2 = st.columns([3, 1])
-    with col1: st.write("**Executive Summary**")
+    with col1: 
+        st.write("**Executive Summary**")
+        for line in exec_lines:
+            st.write(f"• {line}")
     with col2:
         if st.button("Download PDF", key="dl_exec"):
             pdf = generate_pdf_report("Executive Summary", exec_lines)
             st.download_button("Download", pdf, "exec_summary.pdf", "application/pdf")
+
     risk_df = pd.read_sql("SELECT title, category, likelihood, impact, risk_score, status FROM risks WHERE company_id=?", conn, params=(company_id,))
     col1, col2 = st.columns([3, 1])
-    with col1: st.write("**Risk Register**")
+    with col1: 
+        st.write("**Risk Register**")
+        st.dataframe(risk_df)
     with col2:
         if st.button("Download PDF", key="dl_risk"):
             pdf = generate_pdf_report("Risk Register", risk_df)
             st.download_button("Download", pdf, "risk_register.pdf", "application/pdf")
+
     nist_df = pd.read_sql("SELECT id, name, status FROM nist_controls WHERE company_id=?", conn, params=(company_id,))
     col1, col2 = st.columns([3, 1])
-    with col1: st.write("**NIST Compliance**")
+    with col1: 
+        st.write("**NIST Compliance**")
+        st.dataframe(nist_df)
     with col2:
         if st.button("Download PDF", key="dl_nist"):
             pdf = generate_pdf_report("NIST Compliance Report", nist_df)
             st.download_button("Download", pdf, "nist_report.pdf", "application/pdf")
+
     vendor_df = pd.read_sql("SELECT name, risk_level, last_assessment FROM vendors WHERE company_id=?", conn, params=(company_id,))
     col1, col2 = st.columns([3, 1])
-    with col1: st.write("**Vendor Risk Profile**")
+    with col1: 
+        st.write("**Vendor Risk Profile**")
+        st.dataframe(vendor_df)
     with col2:
-        if st.button("Download, key="dl_vendor"):
+        if st.button("Download PDF", key="dl_vendor"):
             pdf = generate_pdf_report("Vendor Risk Profile", vendor_df)
             st.download_button("Download", pdf, "vendor_report.pdf", "application/pdf")
 
@@ -907,3 +919,4 @@ elif page == "Audit Trail" and user[4] == "Admin":
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines")
+
