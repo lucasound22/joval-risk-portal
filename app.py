@@ -323,19 +323,20 @@ elif page == "Log a new Risk":
         selected_company_name = st.selectbox("Company *", company_options)
         selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
 
+        # === FIX: Query approvers AFTER company is selected ===
         approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
         approver_list = approvers_df['email'].tolist()
 
         if approver_list:
             assigned_approver = st.selectbox("Assign to Approver *", approver_list)
         else:
-            st.warning("No approvers.")
+            st.warning("No approvers found for this company.")
             assigned_approver = None
 
         submitted = st.form_submit_button("Submit Risk")
         if submitted:
             if not all([title, desc, assigned_approver]):
-                st.error("Fill all fields.")
+                st.error("Please fill all required fields.")
             else:
                 score = calculate_risk_score(likelihood, impact)
                 c.execute("""INSERT INTO risks 
@@ -346,10 +347,9 @@ elif page == "Log a new Risk":
                            user[1], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval"))
                 conn.commit()
                 log_action(user[2], "RISK_SUBMITTED", title)
-                send_email(assigned_approver, "New Risk", f"Title: {title}\nBy: {user[2]}")
-                st.success("Submitted!")
+                send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
+                st.success("Risk submitted successfully!")
                 st.rerun()
-
 # === EVIDENCE VAULT ===
 elif page == "Evidence Vault":
     st.markdown("## Evidence Vault")
@@ -537,3 +537,4 @@ elif page == "Audit Trail" and user[4] == "Admin":
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
+
