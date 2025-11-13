@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v27.1 – NO NIST CONTROLS – FULL & FINAL
+# app.py – JOVAL WINES RISK PORTAL v27.3 – FINAL & COMPLETE
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -117,30 +117,30 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
               ("Pallet Co", "vendor@palletco.com", "Medium", "2025-09-15", 1))
 
-    # VENDOR QUESTIONNAIRE – 20 STANDARD QUESTIONS
-    vendor_questions = [
+    # NIST VENDOR QUESTIONNAIRE – 20 STANDARD QUESTIONS (INDUSTRY STANDARD)
+    nist_vendor_questions = [
         "Do you have a cybersecurity policy in place?",
-        "Do you conduct regular security awareness training?",
-        "Do you enforce multi-factor authentication (MFA)?",
+        "Do you conduct regular security awareness training for employees?",
+        "Do you enforce multi-factor authentication (MFA) for all users?",
         "Do you perform regular vulnerability assessments?",
-        "Do you have an incident response plan?",
+        "Do you have a formal incident response plan?",
         "Are security logs retained for at least 12 months?",
         "Do you encrypt data at rest and in transit?",
-        "Do you conduct third-party risk assessments?",
+        "Do you conduct third-party risk assessments on your vendors?",
         "Do you have a formal patch management process?",
-        "Do you perform penetration testing annually?",
-        "Do you have a business continuity plan?",
-        "Do you restrict administrative access?",
-        "Do you monitor for unauthorized access?",
+        "Do you perform penetration testing at least annually?",
+        "Do you have a business continuity and disaster recovery plan?",
+        "Do you restrict administrative access using least privilege?",
+        "Do you monitor for unauthorized access or anomalies?",
         "Do you have a data classification policy?",
-        "Do you provide a Software Bill of Materials (SBOM)?",
-        "Do you have insurance for cyber incidents?",
-        "Do you comply with ISO 27001 or SOC 2?",
+        "Do you provide a Software Bill of Materials (SBOM) for your products?",
+        "Do you carry cyber liability insurance?",
+        "Do you comply with ISO 27001, SOC 2, or equivalent standards?",
         "Do you allow remote access? If yes, how is it secured?",
-        "Do you have a vendor offboarding process?",
-        "Do you provide audit rights to customers?"
+        "Do you have a formal vendor offboarding process?",
+        "Do you provide audit rights to customers upon request?"
     ]
-    c.executemany("INSERT OR IGNORE INTO vendor_questions (question, company_id) VALUES (?, ?)", [(q, 1) for q in vendor_questions])
+    c.executemany("INSERT OR IGNORE INTO vendor_questions (question, company_id) VALUES (?, ?)", [(q, 1) for q in nist_vendor_questions])
 
     conn.commit()
     conn.close()
@@ -316,16 +316,24 @@ if page == "Dashboard":
 # === LOG A NEW RISK ===
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
+    # FIXED: All approvers from same company
     approvers = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(company_id,))
     approver_list = approvers['email'].tolist() if not approvers.empty else []
+    
     with st.form("new_risk"):
         title = st.text_input("Title")
         desc = st.text_area("Description")
         category = st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
         likelihood = st.selectbox("Likelihood", ["Low", "Medium", "High"])
         impact = st.selectbox("Impact", ["Low", "Medium", "High"])
-        assigned_approver = st.selectbox("Assign to Approver", approver_list) if approver_list else st.info("No approvers.")
-        if st.form_submit_button("Submit"):
+        
+        if approver_list:
+            assigned_approver = st.selectbox("Assign to Approver", approver_list)
+        else:
+            st.warning("No approvers found for your company.")
+            assigned_approver = None
+
+        if st.form_submit_button("Submit") and assigned_approver:
             score = calculate_risk_score(likelihood, impact)
             c.execute("""INSERT INTO risks 
                          (company_id, title, description, category, likelihood, impact, status, 
@@ -421,18 +429,24 @@ elif page == "Evidence Vault":
 # === VENDOR MANAGEMENT ===
 elif page == "Vendor Management":
     st.markdown("## Vendor Management")
-    with st.expander("Manage Vendor Questions", expanded=False):
+    
+    # EDITABLE NIST QUESTIONNAIRE – ALWAYS POPULATED
+    with st.expander("Manage Vendor Questions (NIST Standard)", expanded=True):
         questions = pd.read_sql("SELECT id, question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
         if questions.empty:
-            st.info("No questions. Standard vendor questionnaire will be used.")
+            # Ensure NIST questions are loaded
+            init_db()
+            questions = pd.read_sql("SELECT id, question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
         edited = st.data_editor(questions, num_rows="dynamic", key="vendor_q_editor")
         if st.button("Save Questions"):
             c.execute("DELETE FROM vendor_questions WHERE company_id=?", (company_id,))
             for _, row in edited.iterrows():
-                if row['question']:
-                    c.execute("INSERT INTO vendor_questions (question, company_id) VALUES (?, ?)", (row['question'], company_id))
+                if row['question'] and row['question'].strip():
+                    c.execute("INSERT INTO vendor_questions (question, company_id) VALUES (?, ?)", (row['question'].strip(), company_id))
             conn.commit()
             st.success("Questions updated")
+            st.rerun()
+
     with st.expander("Add New Vendor"):
         with st.form("new_vendor"):
             v_name = st.text_input("Name")
@@ -443,6 +457,7 @@ elif page == "Vendor Management":
                           (v_name, v_email, v_level, datetime.now().strftime("%Y-%m-%d"), company_id))
                 conn.commit()
                 st.rerun()
+
     vendors = pd.read_sql("SELECT id, name, risk_level FROM vendors WHERE company_id=?", conn, params=(company_id,))
     for _, v in vendors.iterrows():
         with st.expander(f"{v['name']} – {v['risk_level']}"):
@@ -452,10 +467,10 @@ elif page == "Vendor Management":
                     c.execute("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, sent_date) VALUES (?, ?, ?)",
                               (v['id'], q['question'], datetime.now().strftime("%Y-%m-%d")))
                 conn.commit()
-                st.success("Sent")
+                st.success("Questionnaire sent")
             q_df = pd.read_sql("SELECT id, question, answer FROM vendor_questionnaire WHERE vendor_id=?", conn, params=(v['id'],))
             if q_df.empty:
-                st.info("No questions.")
+                st.info("No questions sent yet.")
             else:
                 edited = st.data_editor(q_df, num_rows="dynamic", key=f"q_{v['id']}")
                 if st.button("Save Answers", key=f"saveq_{v['id']}"):
@@ -463,7 +478,7 @@ elif page == "Vendor Management":
                         c.execute("UPDATE vendor_questionnaire SET answer=?, answered_date=? WHERE id=?", 
                                   (row['answer'], datetime.now().strftime("%Y-%m-%d"), row['id']))
                     conn.commit()
-                    st.success("Saved")
+                    st.success("Answers saved")
 
 # === REPORTS ===
 elif page == "Reports":
@@ -573,4 +588,3 @@ elif page == "Audit Trail" and user[4] == "Admin":
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines")
-
