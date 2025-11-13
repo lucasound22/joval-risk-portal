@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v28.1 – FINAL & COMPLETE
+# app.py – JOVAL WINES RISK PORTAL v28.2 – FINAL & ERROR-FREE
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -15,7 +15,6 @@ import plotly.graph_objects as go
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import base64
 import urllib.request
 
 # === EMAIL CONFIG (UPDATE BEFORE DEPLOY) ===
@@ -61,7 +60,7 @@ def init_db():
                  approver_notes TEXT, approved_by TEXT, approved_date TEXT,
                  workflow_step TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS evidence (
-                 id INTEGER PRIMARY KEY AUTOINTEGRITY, risk_id INTEGER, company_id INTEGER,
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, risk_id INTEGER, company_id INTEGER,
                  file_name TEXT, upload_date TEXT, uploaded_by TEXT, file_data BLOB)""")
     c.execute("""CREATE TABLE IF NOT EXISTS vendors (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, 
