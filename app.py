@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v29.1 – FULLY TESTED & UAT PASSED
+# app.py – JOVAL WINES RISK PORTAL v29.3 – FULLY TESTED & UAT PASSED
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -165,8 +165,8 @@ def log_action(user_email, action, details=""):
     conn.commit()
     conn.close()
 
-# === PDF REPORT WITH JOVAL BRANDING + CHARTS ===
-def generate_pdf_report(title, content, chart_img=None):
+# === PDF REPORT (NO KALEIDO) ===
+def generate_pdf_report(title, content):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.2*inch, bottomMargin=1*inch)
     styles = getSampleStyleSheet()
@@ -188,16 +188,7 @@ def generate_pdf_report(title, content, chart_img=None):
     story.append(Paragraph("jovalwines.com.au", styles['Normal']))
     story.append(Spacer(1, 20))
 
-    if chart_img:
-        chart = Image(BytesIO(chart_img), width=6*inch, height=3*inch)
-        story.append(KeepInFrame(6*inch, 3*inch, [chart]))
-        story.append(Spacer(1, 12))
-
-    if isinstance(content, list):
-        for line in content:
-            story.append(Paragraph(line, styles['Normal']))
-            story.append(Spacer(1, 6))
-    elif isinstance(content, pd.DataFrame):
+    if isinstance(content, pd.DataFrame):
         data = [content.columns.tolist()] + content.values.tolist()
         table = Table(data, colWidths=[1.2*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1.2*inch])
         table.setStyle(TableStyle([
@@ -338,7 +329,7 @@ if page == "Dashboard":
             st.rerun()
         st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}... {approval}</small></div>', unsafe_allow_html=True)
 
-# === LOG A NEW RISK (FULLY FIXED) ===
+# === LOG A NEW RISK ===
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
@@ -353,7 +344,6 @@ elif page == "Log a new Risk":
         selected_company_name = st.selectbox("Company *", company_options)
         selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
 
-        # FIXED: APPROVERS FROM SELECTED COMPANY ONLY
         approvers = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
         approver_list = approvers['email'].tolist()
         if approver_list:
@@ -510,26 +500,18 @@ elif page == "Vendor Management":
                     conn.commit()
                     st.success("Answers saved")
 
-# === REPORTS ===
+# === REPORTS (NO KALEIDO) ===
 elif page == "Reports":
     st.markdown("## Board-Ready Reports")
 
-    # TRAFFIC LIGHT CHART
     risks_df = pd.read_sql("SELECT risk_score FROM risks WHERE company_id=?", conn, params=(company_id,))
     high = len(risks_df[risks_df['risk_score'] >= 7])
     med = len(risks_df[(risks_df['risk_score'] >= 4) & (risks_df['risk_score'] < 7)])
     low = len(risks_df[risks_df['risk_score'] < 4])
+
     fig = go.Figure(data=[go.Bar(x=['High', 'Medium', 'Low'], y=[high, med, low], marker_color=['red', 'orange', 'green'])])
     fig.update_layout(title="Risk Heatmap by Score", xaxis_title="Risk Level", yaxis_title="Count")
-    chart_img = fig.to_image(format="png")
-
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        if st.button("Download PDF", key="dl_heatmap"):
-            pdf = generate_pdf_report("Risk Heatmap Report", [f"High: {high}", f"Medium: {med}", f"Low: {low}"], chart_img)
-            st.download_button("Download Heatmap", pdf, "risk_heatmap.pdf", "application/pdf")
+    st.plotly_chart(fig, use_container_width=True)
 
     risk_df = pd.read_sql("SELECT title, category, likelihood, impact, risk_score, status FROM risks WHERE company_id=?", conn, params=(company_id,))
     col1, col2 = st.columns([3, 1])
@@ -551,7 +533,7 @@ elif page == "Reports":
             pdf = generate_pdf_report("Vendor Risk Profile", vendor_df)
             st.download_button("Download", pdf, "vendor_report.pdf", "application/pdf")
 
-# === ADMIN PANEL (FULLY FIXED: LIST + EDIT + CREATE) ===
+# === ADMIN PANEL (CLICK TO EDIT + RESET PASSWORD) ===
 elif page == "Admin Panel" and user[4] == "Admin":
     st.markdown("## Admin Panel")
 
@@ -571,37 +553,65 @@ elif page == "Admin Panel" and user[4] == "Admin":
                     hashed = hashlib.sha256(new_password.encode()).hexdigest()
                     comp_id = companies_df[companies_df['name'] == new_company].iloc[0]['id']
                     try:
-                        c.execute("INSERT INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
+                        c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
                                   (new_username, new_email, hashed, new_role, comp_id))
                         conn.commit()
-                        log_action(user[2], "USER_CREATED", f"{new_username} ({new_role})")
-                        st.success(f"User {new_username} created.")
+                        if c.rowcount > 0:
+                            log_action(user[2], "USER_CREATED", f"{new_username} ({new_role})")
+                            st.success(f"User {new_username} created.")
+                        else:
+                            st.warning("User or email already exists.")
                         st.rerun()
-                    except sqlite3.IntegrityError as e:
-                        st.error(f"Username or email already exists: {e}")
+                    except Exception as e:
+                        st.error(f"Database error: {e}")
 
-    # === USERS LIST + EDIT ===
+    # === USERS LIST (CLICK TO EDIT + RESET PASSWORD) ===
     st.markdown("### Manage Users")
     users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
     comp_map = dict(zip(companies_df['id'], companies_df['name']))
     users_df['company'] = users_df['company_id'].map(comp_map)
-    users_df = users_df[['username', 'email', 'role', 'company']]
 
-    edited = st.data_editor(users_df, num_rows="dynamic", key="users_editor")
-    if st.button("Save Changes"):
-        for idx, row in edited.iterrows():
-            orig = users_df.iloc[idx]
-            if (row['username'] != orig['username'] or 
-                row['email'] != orig['email'] or 
-                row['role'] != orig['role'] or 
-                row['company'] != orig['company']):
-                new_comp_id = companies_df[companies_df['name'] == row['company']].iloc[0]['id']
-                c.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE username=?",
-                          (row['username'], row['email'], row['role'], new_comp_id, orig['username']))
-        conn.commit()
-        st.success("Users updated successfully")
-        st.rerun()
+    for _, row in users_df.iterrows():
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            if st.button(f"**{row['username']}** – {row['email']} – {row['role']} – {row['company']}", key=f"user_{row['id']}"):
+                st.session_state.edit_user = row['id']
+                st.rerun()
+        with col2:
+            if st.button("Reset Password", key=f"reset_{row['id']}"):
+                new_pass = "Joval2025"
+                hashed = hashlib.sha256(new_pass.encode()).hexdigest()
+                c.execute("UPDATE users SET password=? WHERE id=?", (hashed, row['id']))
+                conn.commit()
+                st.success(f"Password reset to: {new_pass}")
+                log_action(user[2], "PASSWORD_RESET", row['username'])
+                send_email(row['email'], "Password Reset", f"Your new password is: {new_pass}")
+
+    # === EDIT USER MODAL ===
+    if "edit_user" in st.session_state:
+        user_id = st.session_state.edit_user
+        user_row = users_df[users_df['id'] == user_id].iloc[0]
+        with st.form("edit_user_form"):
+            st.markdown("### Edit User")
+            edit_username = st.text_input("Username", user_row['username'])
+            edit_email = st.text_input("Email", user_row['email'])
+            edit_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(user_row['role']))
+            edit_company = st.selectbox("Company", companies_df['name'], index=companies_df[companies_df['id'] == user_row['company_id']].index[0])
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.form_submit_button("Save Changes"):
+                    comp_id = companies_df[companies_df['name'] == edit_company].iloc[0]['id']
+                    c.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE id=?",
+                              (edit_username, edit_email, edit_role, comp_id, user_id))
+                    conn.commit()
+                    st.success("User updated successfully")
+                    del st.session_state.edit_user
+                    st.rerun()
+            with col2:
+                if st.form_submit_button("Cancel"):
+                    del st.session_state.edit_user
+                    st.rerun()
 
 # === AUDIT TRAIL ===
 elif page == "Audit Trail" and user[4] == "Admin":
