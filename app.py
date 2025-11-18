@@ -586,10 +586,12 @@ elif page == "Reports":
                 mime="application/pdf"
             )
 
-# === ADMIN PANEL ===
+# === ADMIN PANEL (FIXED) ===
 elif page == "Admin Panel" and user[4] == "Admin":
     st.markdown("## Admin Panel")
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
+    comp_map = dict(zip(companies_df['id'], companies_df['name'])) # Map ID to Name
+    
     with st.expander("Add User"):
         with st.form("add_user"):
             new_username = st.text_input("Username")
@@ -599,7 +601,7 @@ elif page == "Admin Panel" and user[4] == "Admin":
             new_company = st.selectbox("Company", companies_df['name'])
             if st.form_submit_button("Create"):
                 if not all([new_username, new_email, new_password]):
-                    st.error("Required")
+                    st.error("Required fields are missing.")
                 else:
                     hashed = hashlib.sha256(new_password.encode()).hexdigest()
                     comp_id = companies_df[companies_df['name'] == new_company].iloc[0]['id']
@@ -608,14 +610,15 @@ elif page == "Admin Panel" and user[4] == "Admin":
                     params = (new_username, new_email, hashed, new_role, comp_id)
                     
                     if db_write(sql, params) > 0:
-                        st.success("Created")
+                        st.success("User created successfully.")
                         st.rerun()
                     else:
                         st.error("Failed to create user. Username or Email may already exist.")
                         
+    st.markdown("### Existing Users")
     users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
-    comp_map = dict(zip(companies_df['id'], companies_df['name']))
     users_df['company'] = users_df['company_id'].map(comp_map)
+    
     for _, row in users_df.iterrows():
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -629,35 +632,43 @@ elif page == "Admin Panel" and user[4] == "Admin":
                 
                 sql = "UPDATE users SET password=? WHERE id=?"
                 if db_write(sql, (hashed, row['id'])) > 0:
-                    st.success(f"Reset to: {new_pass}")
-                    send_email(row['email'], "Password Reset", f"New: {new_pass}")
+                    st.success(f"Password reset to: {new_pass}")
+                    send_email(row['email'], "Password Reset", f"Your password has been reset to: {new_pass}")
                 
     if "edit_user" in st.session_state:
         edit_data = st.session_state.edit_user
-        with st.form("edit_user_form"):
-            edit_username = st.text_input("Username", edit_data['username'])
-            edit_email = st.text_input("Email", edit_data['email'])
-            edit_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(edit_data['role']))
+        # --- FIX APPLIED HERE ---
+        with st.form("edit_user_form", clear_on_submit=False): 
+            st.markdown(f"#### Editing User ID: {edit_data['id']}")
+            
+            # Use index of the current role/company for safe default selection
+            role_options = ["Admin", "Approver", "User"]
+            role_idx = role_options.index(edit_data['role']) if edit_data['role'] in role_options else 0
             
             company_names_list = companies_df['name'].tolist()
-            current_comp_id = edit_data['company_id']
-            current_comp_name = comp_map.get(current_comp_id)
-            company_idx = 0 
-            if current_comp_name in company_names_list:
-                company_idx = company_names_list.index(current_comp_name)
-                
-            edit_company = st.selectbox("Company", company_names_list, index=company_idx)
+            current_comp_name = comp_map.get(edit_data['company_id']) # Get name from ID
+            company_idx = company_names_list.index(current_comp_name) if current_comp_name in company_names_list else 0
 
+            edit_username = st.text_input("Username", edit_data['username'])
+            edit_email = st.text_input("Email", edit_data['email'])
+            
+            # Safely set default index for Role
+            edit_role = st.selectbox("Role", role_options, index=role_idx) 
+            
+            # Safely set default index for Company
+            edit_company = st.selectbox("Company", company_names_list, index=company_idx) 
+            # --- END FIX ---
+            
             col1, col2 = st.columns(2)
             with col1:
-                if st.form_submit_button("Save"):
+                if st.form_submit_button("Save Changes"):
                     comp_id = companies_df[companies_df['name'] == edit_company].iloc[0]['id']
                     
                     sql = "UPDATE users SET username=?, email=?, role=?, company_id=? WHERE id=?"
                     params = (edit_username, edit_email, edit_role, comp_id, edit_data['id'])
                     
                     if db_write(sql, params) > 0:
-                        st.success("Updated")
+                        st.success("User updated successfully.")
                         del st.session_state.edit_user
                         st.rerun()
                     else:
@@ -677,3 +688,4 @@ elif page == "Audit Trail" and user[4] == "Admin":
 
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
+
