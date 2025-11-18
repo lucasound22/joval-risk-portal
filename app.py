@@ -84,7 +84,7 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
                   (f"approver_{comp.lower().replace(' ', '')}", approver_email, hashed, "Approver", i))
     risks = [
-        (1, "Phishing Campaign", "Finance targeted via email", "DETECT", "High", "High", "Pending Approval", "admin", "2025-10-01", 9, "approver@jovalwines.com.au", "", None, None, "awaiting_approval"),
+        (1, "Phishing Campaign", "Finance targeted via email", "DETECT", "High", "High", "Pending Approval", "admin@jovalwines.com.au", "2025-10-01", 9, "approver@jovalwines.com.au", "", None, None, "awaiting_approval"),
     ]
     c.executemany("""INSERT OR IGNORE INTO risks
                      (company_id, title, description, category, likelihood, impact, status,
@@ -288,12 +288,10 @@ elif page == "Log a new Risk":
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
     company_options = companies_df['name'].tolist()
 
-    # === START: BUG FIX (DYNAMIC DROPDOWNS) ===
-    # 1. Company selection is OUTSIDE the form.
+    # === DYNAMIC DROPDOWNS ===
     st.markdown("### 1. Select Company")
     selected_company_name = st.selectbox("Company *", company_options, key='company_selector')
     
-    # 2. Get the ID and approvers based on the selection.
     selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
     approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
     approver_list = approvers_df['email'].tolist()
@@ -301,7 +299,6 @@ elif page == "Log a new Risk":
     st.markdown("---") 
     st.markdown("### 2. Enter Risk Details")
 
-    # 3. Create the form.
     with st.form("new_risk"):
         title = st.text_input("Title *")
         desc = st.text_area("Description *")
@@ -309,11 +306,8 @@ elif page == "Log a new Risk":
         likelihood = st.selectbox("Likelihood *", ["Low", "Medium", "High"])
         impact = st.selectbox("Impact *", ["Low", "Medium", "High"])
         
-        # 4. The approver list is now dynamically correct.
         submit_disabled = False
         submit_help = "Click to submit the risk."
-        
-        # === REMOVED LOCKED COMPANY INPUT ===
         
         if approver_list:
             assigned_approver = st.selectbox("Assign to Approver *", approver_list)
@@ -326,7 +320,6 @@ elif page == "Log a new Risk":
         submitted = st.form_submit_button("Submit Risk", disabled=submit_disabled, help=submit_help)
         
         if submitted:
-            # 5. Check fields.
             if not all([title, desc]):
                 st.error("Please fill all required fields (Title and Description).")
             elif not assigned_approver:
@@ -334,7 +327,6 @@ elif page == "Log a new Risk":
             else:
                 score = calculate_risk_score(likelihood, impact)
                 
-                # === START: DATABASE WRITE FIX ===
                 # Use a fresh, local connection for writing to the database
                 conn_local = get_db()
                 c_local = conn_local.cursor()
@@ -343,18 +335,15 @@ elif page == "Log a new Risk":
                               submitted_by, submitted_date, risk_score, approver_email, workflow_step)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                           (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
-                           user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval")) # Changed user[1] to user[2]
+                           user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval"))
                 conn_local.commit()
                 conn_local.close()
-                # === END: DATABASE WRITE FIX ===
                 
                 log_action(user[2], "RISK_SUBMITTED", title)
                 send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
                 st.success("Risk submitted successfully!")
                 
-                # Rerun to clear the form state and update dashboard
                 st.rerun()
-    # === END: BUG FIX ===
 
 # === EVIDENCE VAULT ===
 elif page == "Evidence Vault":
@@ -592,7 +581,7 @@ elif page == "Reports":
                 st.session_state.custom_report_df = custom_df
 
         # Handle PDF Download outside the form
-        if "custom_report_df" in st.session_state and not st.session_state.custom_report_df..empty:
+        if "custom_report_df" in st.session_state and not st.session_state.custom_report_df.empty:
             st.markdown("---")
             pdf_data = generate_pdf_report("Custom Risk Report", st.session_state.custom_report_df)
             st.download_button(
