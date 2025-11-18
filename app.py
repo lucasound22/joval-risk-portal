@@ -320,13 +320,12 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
                 approved_by = user[2] if status in ["Approved", "Rejected"] else risk['approved_by']
                 approved_date = datetime.now().strftime("%Y-%m-%d") if status in ["Approved", "Rejected"] else risk['approved_date']
                 workflow_step = "approved" if status == "Approved" else "rejected" if status == "Rejected" else "mitigated" if status == "Mitigated" else "awaiting_approval"
-                conn_local = get_db()
-                c_local = conn_local.cursor()
-                c_local.execute("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, 
-                             status=?, risk_score=?, approver_notes=?, approved_by=?, approved_date=?, workflow_step=? WHERE id=?""",
-                          (title, desc, category, likelihood, impact, status, score, notes, approved_by, approved_date, workflow_step, risk_id))
-                conn_local.commit()
-                conn_local.close()
+             # Use fresh connection for INSERT
+conn_local = get_db()
+c_local = conn_local.cursor()
+c_local.execute("INSERT INTO risks ...", params)
+conn_local.commit()
+conn_local.close()
                 log_action(user[2], "RISK_UPDATED", f"{title} → {status}")
                 st.success("Risk updated")
                 st.rerun()
@@ -622,3 +621,4 @@ elif page == "Audit Trail" and user[4] == "Admin":
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
 conn.close()
+
