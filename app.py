@@ -317,7 +317,7 @@ elif page == "Evidence Vault":
             st.session_state.page = "Log a new Risk"
             st.rerun()
     else:
-        risk_options = {row['title']: row['id'] for *, row in risks.iterrows()}
+        risk_options = dict(zip(risks['title'], risks['id']))
         selected_risk_title = st.selectbox("Select Risk", options=list(risk_options.keys()))
         risk_id = risk_options[selected_risk_title]
         uploaded = st.file_uploader("Upload Evidence", type=["pdf", "png", "jpg", "jpeg", "docx", "txt"], key="upload")
@@ -490,4 +490,5 @@ elif page == "Audit Trail" and user[4] == "Admin":
             st.write(row['details'] or "—")
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
+
 
