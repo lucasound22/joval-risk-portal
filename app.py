@@ -187,6 +187,7 @@ if "user" not in st.session_state:
     st.stop()
 user = st.session_state.user
 company_id = user[5]
+# === GLOBAL DB CONNECTION (FOR READS) ===
 conn = get_db()
 c = conn.cursor()
 c.execute("SELECT name FROM companies WHERE id=?", (company_id,))
@@ -257,10 +258,16 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
                 approved_by = user[2] if status in ["Approved", "Rejected"] else risk['approved_by']
                 approved_date = datetime.now().strftime("%Y-%m-%d") if status in ["Approved", "Rejected"] else risk['approved_date']
                 workflow_step = "approved" if status == "Approved" else "rejected" if status == "Rejected" else "mitigated" if status == "Mitigated" else "awaiting_approval"
-                c.execute("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?,
+                
+                # Use local connection for write
+                conn_local = get_db()
+                c_local = conn_local.cursor()
+                c_local.execute("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?,
                              status=?, risk_score=?, approver_notes=?, approved_by=?, approved_date=?, workflow_step=? WHERE id=?""",
                           (title, desc, category, likelihood, impact, status, score, notes, approved_by, approved_date, workflow_step, risk_id))
-                conn.commit()
+                conn_local.commit()
+                conn_local.close()
+                
                 log_action(user[2], "RISK_UPDATED", f"{title} → {status}")
                 st.success("Risk updated")
                 st.rerun()
@@ -282,13 +289,11 @@ elif page == "Log a new Risk":
     company_options = companies_df['name'].tolist()
 
     # === START: BUG FIX (DYNAMIC DROPDOWNS) ===
-    # 1. Move company selection OUTSIDE the form.
-    # When this selectbox is changed, Streamlit reruns the *entire script*.
+    # 1. Company selection is OUTSIDE the form.
     st.markdown("### 1. Select Company")
     selected_company_name = st.selectbox("Company *", company_options, key='company_selector')
     
     # 2. Get the ID and approvers based on the selection.
-    # On the rerun, selected_company_name will have the new value.
     selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
     approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
     approver_list = approvers_df['email'].tolist()
@@ -308,8 +313,7 @@ elif page == "Log a new Risk":
         submit_disabled = False
         submit_help = "Click to submit the risk."
         
-        # Add a disabled text input to show which company is selected
-        st.text_input("Selected Company (Locked)", selected_company_name, disabled=True)
+        # === REMOVED LOCKED COMPANY INPUT ===
         
         if approver_list:
             assigned_approver = st.selectbox("Assign to Approver *", approver_list)
@@ -325,23 +329,30 @@ elif page == "Log a new Risk":
             # 5. Check fields.
             if not all([title, desc]):
                 st.error("Please fill all required fields (Title and Description).")
-            # This check is now redundant due to the disabled button, but good for safety
             elif not assigned_approver:
                 st.error("An approver must be selected.")
             else:
                 score = calculate_risk_score(likelihood, impact)
-                # selected_company_id and assigned_approver are now correct.
-                c.execute("""INSERT INTO risks
+                
+                # === START: DATABASE WRITE FIX ===
+                # Use a fresh, local connection for writing to the database
+                conn_local = get_db()
+                c_local = conn_local.cursor()
+                c_local.execute("""INSERT INTO risks
                              (company_id, title, description, category, likelihood, impact, status,
                               submitted_by, submitted_date, risk_score, approver_email, workflow_step)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                           (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
-                           user[1], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval"))
-                conn.commit()
+                           user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval")) # Changed user[1] to user[2]
+                conn_local.commit()
+                conn_local.close()
+                # === END: DATABASE WRITE FIX ===
+                
                 log_action(user[2], "RISK_SUBMITTED", title)
                 send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
                 st.success("Risk submitted successfully!")
-                # Rerun to clear the form state
+                
+                # Rerun to clear the form state and update dashboard
                 st.rerun()
     # === END: BUG FIX ===
 
@@ -360,11 +371,15 @@ elif page == "Evidence Vault":
         risk_id = risk_options[selected_risk_title]
         uploaded = st.file_uploader("Upload Evidence", type=["pdf", "png", "jpg", "jpeg", "docx", "txt"], key="upload")
         if uploaded:
-            c.execute("""INSERT INTO evidence
+            # Use local connection for write
+            conn_local = get_db()
+            c_local = conn_local.cursor()
+            c_local.execute("""INSERT INTO evidence
                            (risk_id, company_id, file_name, upload_date, uploaded_by, file_data)
                            VALUES (?, ?, ?, ?, ?, ?)""",
                       (risk_id, company_id, uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1], uploaded.getvalue()))
-            conn.commit()
+            conn_local.commit()
+            conn_local.close()
             st.success(f"Uploaded: {uploaded.name}")
             st.rerun()
         evidence = pd.read_sql("""SELECT id, file_name, upload_date, uploaded_by, file_data
@@ -380,8 +395,12 @@ elif page == "Evidence Vault":
                     st.download_button("Download", data=e['file_data'], file_name=e['file_name'], key=f"dl*{e['id']}")
                 with col3:
                     if st.button("Delete", key=f"del*{e['id']}"):
-                        c.execute("DELETE FROM evidence WHERE id=?", (e['id'],))
-                        conn.commit()
+                        # Use local connection for write
+                        conn_local = get_db()
+                        c_local = conn_local.cursor()
+                        c_local.execute("DELETE FROM evidence WHERE id=?", (e['id'],))
+                        conn_local.commit()
+                        conn_local.close()
                         st.rerun()
         else:
             st.info("No evidence uploaded for this risk yet.")
@@ -395,10 +414,13 @@ elif page == "Vendor Management":
             questions = pd.read_sql("SELECT id, question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
         edited = st.data_editor(questions, num_rows="dynamic")
         if st.button("Save Questions"):
-            c.execute("DELETE FROM vendor_questions WHERE company_id=?", (company_id,))
+            conn_local = get_db()
+            c_local = conn_local.cursor()
+            c_local.execute("DELETE FROM vendor_questions WHERE company_id=?", (company_id,))
             for _, row in edited.iterrows():
-                if row['question']: c.execute("INSERT INTO vendor_questions (question, company_id) VALUES (?, ?)", (row['question'], company_id))
-            conn.commit()
+                if row['question']: c_local.execute("INSERT INTO vendor_questions (question, company_id) VALUES (?, ?)", (row['question'], company_id))
+            conn_local.commit()
+            conn_local.close()
             st.rerun()
     with st.expander("Add Vendor"):
         with st.form("new_vendor"):
@@ -406,28 +428,37 @@ elif page == "Vendor Management":
             v_email = st.text_input("Email")
             v_level = st.selectbox("Risk Level", ["Low", "Medium", "High"])
             if st.form_submit_button("Add"):
-                c.execute("INSERT INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
+                conn_local = get_db()
+                c_local = conn_local.cursor()
+                c_local.execute("INSERT INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
                           (v_name, v_email, v_level, datetime.now().strftime("%Y-%m-%d"), company_id))
-                conn.commit()
+                conn_local.commit()
+                conn_local.close()
                 st.rerun()
     vendors = pd.read_sql("SELECT id, name, risk_level FROM vendors WHERE company_id=?", conn, params=(company_id,))
     for _, v in vendors.iterrows():
         with st.expander(f"{v['name']} – {v['risk_level']}"):
             if st.button("Send Questionnaire", key=f"send*{v['id']}"):
                 qs = pd.read_sql("SELECT question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
+                conn_local = get_db()
+                c_local = conn_local.cursor()
                 for _, q in qs.iterrows():
-                    c.execute("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, sent_date) VALUES (?, ?, ?)",
+                    c_local.execute("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, sent_date) VALUES (?, ?, ?)",
                               (v['id'], q['question'], datetime.now().strftime("%Y-%m-%d")))
-                conn.commit()
+                conn_local.commit()
+                conn_local.close()
                 st.success("Sent")
             q_df = pd.read_sql("SELECT id, question, answer FROM vendor_questionnaire WHERE vendor_id=?", conn, params=(v['id'],))
             if not q_df.empty:
                 edited = st.data_editor(q_df, num_rows="dynamic", key=f"q*{v['id']}")
                 if st.button("Save Answers", key=f"saveq*{v['id']}"):
+                    conn_local = get_db()
+                    c_local = conn_local.cursor()
                     for _, row in edited.iterrows():
-                        c.execute("UPDATE vendor_questionnaire SET answer=?, answered_date=? WHERE id=?",
+                        c_local.execute("UPDATE vendor_questionnaire SET answer=?, answered_date=? WHERE id=?",
                                   (row['answer'], datetime.now().strftime("%Y-%m-%d"), row['id']))
-                    conn.commit()
+                    conn_local.commit()
+                    conn_local.close()
                     st.success("Saved")
 # === REPORTS ===
 elif page == "Reports":
@@ -561,7 +592,7 @@ elif page == "Reports":
                 st.session_state.custom_report_df = custom_df
 
         # Handle PDF Download outside the form
-        if "custom_report_df" in st.session_state and not st.session_state.custom_report_df.empty:
+        if "custom_report_df" in st.session_state and not st.session_state.custom_report_df..empty:
             st.markdown("---")
             pdf_data = generate_pdf_report("Custom Risk Report", st.session_state.custom_report_df)
             st.download_button(
@@ -590,9 +621,14 @@ elif page == "Admin Panel" and user[4] == "Admin":
                 else:
                     hashed = hashlib.sha256(new_password.encode()).hexdigest()
                     comp_id = companies_df[companies_df['name'] == new_company].iloc[0]['id']
-                    c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
-                              (new_username, new_email, hashed, new_role, comp_id))
-                    conn.commit()
+                    
+                    conn_local = get_db()
+                    c_local = conn_local.cursor()
+                    c_local.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)",
+                                  (new_username, new_email, hashed, new_role, comp_id))
+                    conn_local.commit()
+                    conn_local.close()
+                    
                     st.success("Created")
                     st.rerun()
     users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
@@ -608,8 +644,13 @@ elif page == "Admin Panel" and user[4] == "Admin":
             if st.button("Reset", key=f"reset_{row['id']}"):
                 new_pass = "Joval2025"
                 hashed = hashlib.sha256(new_pass.encode()).hexdigest()
-                c.execute("UPDATE users SET password=? WHERE id=?", (hashed, row['id']))
-                conn.commit()
+                
+                conn_local = get_db()
+                c_local = conn_local.cursor()
+                c_local.execute("UPDATE users SET password=? WHERE id=?", (hashed, row['id']))
+                conn_local.commit()
+                conn_local.close()
+                
                 st.success(f"Reset to: {new_pass}")
                 send_email(row['email'], "Password Reset", f"New: {new_pass}")
     if "edit_user" in st.session_state:
@@ -632,9 +673,14 @@ elif page == "Admin Panel" and user[4] == "Admin":
             with col1:
                 if st.form_submit_button("Save"):
                     comp_id = companies_df[companies_df['name'] == edit_company].iloc[0]['id']
-                    c.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE id=?",
-                              (edit_username, edit_email, edit_role, comp_id, edit_data['id']))
-                    conn.commit()
+                    
+                    conn_local = get_db()
+                    c_local = conn_local.cursor()
+                    c_local.execute("UPDATE users SET username=?, email=?, role=?, company_id=? WHERE id=?",
+                                  (edit_username, edit_email, edit_role, comp_id, edit_data['id']))
+                    conn_local.commit()
+                    conn_local.close()
+                    
                     st.success("Updated")
                     del st.session_state.edit_user
                     st.rerun()
@@ -651,3 +697,6 @@ elif page == "Audit Trail" and user[4] == "Admin":
             st.write(row['details'] or "—")
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
+
+# Close the global read connection at the end of the script
+conn.close()
