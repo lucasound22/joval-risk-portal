@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v35.0 – FULL PRODUCTION VERSION
+# app.py – JOVAL WINES RISK PORTAL v35.0 – FULL PRODUCTION VERSION (FINAL DB FIXES)
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -122,7 +122,8 @@ def generate_pdf_report(title, content):
     styles = getSampleStyleSheet()
     story = []
     try:
-        with urllib.request.urlopen("https.jovalwines.com.au/wp-content/uploads/2020/06/Joval-Wines-Logo.png") as r:
+        # Note: Corrected the protocol error in the URL placeholder
+        with urllib.request.urlopen("https://jovalwines.com.au/wp-content/uploads/2020/06/Joval-Wines-Logo.png") as r:
             img = Image(BytesIO(r.read()), width=2*inch, height=0.6*inch)
             story.append(img)
     except:
@@ -282,7 +283,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         for _, e in evidence.iterrows():
             st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
             
-# === LOG A NEW RISK ===
+# === LOG A NEW RISK (DEFINITIVE FIX APPLIED) ===
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
@@ -323,29 +324,41 @@ elif page == "Log a new Risk":
             if not all([title, desc]):
                 st.error("Please fill all required fields (Title and Description).")
             elif not assigned_approver:
+                # This error is already handled by the disabled button, but included for completeness
                 st.error("An approver must be selected.")
             else:
                 score = calculate_risk_score(likelihood, impact)
                 
-                # === FIX: Use a fresh, local connection for writing to the database ===
+                # Use a fresh, local connection for writing to the database
                 conn_local = get_db()
                 c_local = conn_local.cursor()
                 
-                c_local.execute("""INSERT INTO risks
-                             (company_id, title, description, category, likelihood, impact, status,
-                              submitted_by, submitted_date, risk_score, approver_email, workflow_step)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                          (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
-                           user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval"))
-                           
-                conn_local.commit()
-                conn_local.close()
-                # === END FIX ===
+                try:
+                    c_local.execute("""INSERT INTO risks
+                                 (company_id, title, description, category, likelihood, impact, status,
+                                  submitted_by, submitted_date, risk_score, approver_email, workflow_step)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
+                               user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval"))
+                               
+                    conn_local.commit()
+                    
+                    # Check if any row was inserted
+                    if c_local.rowcount > 0:
+                        log_action(user[2], "RISK_SUBMITTED", title)
+                        send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
+                        st.success("Risk submitted successfully and saved to DB!")
+                    else:
+                        st.error("Database insertion failed: No rows were created. Please check inputs for duplicates.")
+                        
+                except Exception as e:
+                    # In case of an unexpected database error (like a foreign key or data type error)
+                    st.error(f"Database Error on insert: {e}")
+                    
+                finally:
+                    conn_local.close()
                 
-                log_action(user[2], "RISK_SUBMITTED", title)
-                send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
-                st.success("Risk submitted successfully!")
-                
+                # Rerun to clear the form and update the Dashboard/Approvals
                 st.rerun()
 
 # === EVIDENCE VAULT ===
