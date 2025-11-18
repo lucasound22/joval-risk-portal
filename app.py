@@ -227,7 +227,7 @@ if page == "Dashboard":
 elif page == "My Approvals" and user[4] == "Approver":
     st.markdown("## My Approvals")
     pending = pd.read_sql("SELECT id, title, risk_score, submitted_by, submitted_date FROM risks WHERE approver_email=? AND status='Pending Approval' AND company_id=?", conn, params=(user[2], company_id))
-    for *, r in pending.iterrows():
+    for _, r in pending.iterrows():
         if st.button(f"**{r['title']}** – Score: {r['risk_score']} – {r['submitted_by']} on {r['submitted_date']}", key=f"rev*{r['id']}"):
             st.session_state.selected_risk = r['id']
             st.session_state.page = "Risk Detail"
@@ -490,3 +490,4 @@ elif page == "Audit Trail" and user[4] == "Admin":
             st.write(row['details'] or "—")
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
+
