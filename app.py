@@ -90,7 +90,7 @@ def init_db():
                      (company_id, title, description, category, likelihood, impact, status,
                       submitted_by, submitted_date, risk_score, approver_email, approver_notes, approved_by, approved_date, workflow_step)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", risks)
-    c.execute("INSERT OR IGIGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
+    c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)",
               ("Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1))
     nist_questions = [
         "Does the vendor have a formal cybersecurity program aligned with NIST CSF?",
@@ -214,6 +214,8 @@ if page == "Dashboard":
     with col2:
         st.markdown(f'<div class="metric-card"><h2>{total_risks}</h2><p>Total Risks</p></div>', unsafe_allow_html=True)
     risks = pd.read_sql("SELECT id, title, status, risk_score, description, approved_by FROM risks WHERE company_id=?", conn, params=(company_id,))
+    
+    # === SYNTAX FIX 1 ===
     for _, r in risks.iterrows():
         color = get_risk_color(r['risk_score'])
         bg = "#ffe6e6" if color == "red" else "#fff4e6" if color == "orange" else "#e6f7e6"
@@ -227,6 +229,8 @@ if page == "Dashboard":
 elif page == "My Approvals" and user[4] == "Approver":
     st.markdown("## My Approvals")
     pending = pd.read_sql("SELECT id, title, risk_score, submitted_by, submitted_date FROM risks WHERE approver_email=? AND status='Pending Approval' AND company_id=?", conn, params=(user[2], company_id))
+    
+    # === SYNTAX FIX 2 ===
     for _, r in pending.iterrows():
         if st.button(f"**{r['title']}** – Score: {r['risk_score']} – {r['submitted_by']} on {r['submitted_date']}", key=f"rev*{r['id']}"):
             st.session_state.selected_risk = r['id']
@@ -317,7 +321,7 @@ elif page == "Evidence Vault":
             st.session_state.page = "Log a new Risk"
             st.rerun()
     else:
-        risk_options = dict(zip(risks['title'], risks['id']))
+        risk_options = {row['title']: row['id'] for _, row in risks.iterrows()}
         selected_risk_title = st.selectbox("Select Risk", options=list(risk_options.keys()))
         risk_id = risk_options[selected_risk_title]
         uploaded = st.file_uploader("Upload Evidence", type=["pdf", "png", "jpg", "jpeg", "docx", "txt"], key="upload")
@@ -333,7 +337,9 @@ elif page == "Evidence Vault":
                                    FROM evidence WHERE risk_id=?""", conn, params=(risk_id,))
         if not evidence.empty:
             st.markdown("### Uploaded Evidence")
-            for *, e in evidence.iterrows():
+            
+            # === SYNTAX FIX 3 (The one you reported) ===
+            for _, e in evidence.iterrows():
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
                     st.write(f"**{e['file_name']}**")
@@ -358,7 +364,9 @@ elif page == "Vendor Management":
         edited = st.data_editor(questions, num_rows="dynamic")
         if st.button("Save Questions"):
             c.execute("DELETE FROM vendor_questions WHERE company_id=?", (company_id,))
-            for *, row in edited.iterrows():
+            
+            # === SYNTAX FIX 4 ===
+            for _, row in edited.iterrows():
                 if row['question']: c.execute("INSERT INTO vendor_questions (question, company_id) VALUES (?, ?)", (row['question'], company_id))
             conn.commit()
             st.rerun()
@@ -373,11 +381,15 @@ elif page == "Vendor Management":
                 conn.commit()
                 st.rerun()
     vendors = pd.read_sql("SELECT id, name, risk_level FROM vendors WHERE company_id=?", conn, params=(company_id,))
-    for *, v in vendors.iterrows():
+    
+    # === SYNTAX FIX 5 ===
+    for _, v in vendors.iterrows():
         with st.expander(f"{v['name']} – {v['risk_level']}"):
             if st.button("Send Questionnaire", key=f"send*{v['id']}"):
                 qs = pd.read_sql("SELECT question FROM vendor_questions WHERE company_id=?", conn, params=(company_id,))
-                for *, q in qs.iterrows():
+                
+                # === SYNTAX FIX 6 ===
+                for _, q in qs.iterrows():
                     c.execute("INSERT OR IGNORE INTO vendor_questionnaire (vendor_id, question, sent_date) VALUES (?, ?, ?)",
                               (v['id'], q['question'], datetime.now().strftime("%Y-%m-%d")))
                 conn.commit()
@@ -386,6 +398,8 @@ elif page == "Vendor Management":
             if not q_df.empty:
                 edited = st.data_editor(q_df, num_rows="dynamic", key=f"q*{v['id']}")
                 if st.button("Save Answers", key=f"saveq*{v['id']}"):
+                    
+                    # === SYNTAX FIX 7 ===
                     for _, row in edited.iterrows():
                         c.execute("UPDATE vendor_questionnaire SET answer=?, answered_date=? WHERE id=?",
                                   (row['answer'], datetime.now().strftime("%Y-%m-%d"), row['id']))
@@ -430,7 +444,9 @@ elif page == "Admin Panel" and user[4] == "Admin":
     users_df = pd.read_sql("SELECT id, username, email, role, company_id FROM users", conn)
     comp_map = dict(zip(companies_df['id'], companies_df['name']))
     users_df['company'] = users_df['company_id'].map(comp_map)
-    for *, row in users_df.iterrows():
+    
+    # === SYNTAX FIX 8 ===
+    for _, row in users_df.iterrows():
         col1, col2 = st.columns([3, 1])
         with col1:
             if st.button(f"**{row['username']}** – {row['email']} – {row['role']} – {row['company']}", key=f"user*{row['id']}"):
@@ -451,16 +467,11 @@ elif page == "Admin Panel" and user[4] == "Admin":
             edit_email = st.text_input("Email", edit_data['email'])
             edit_role = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(edit_data['role']))
             
-            # === START: BUG FIX ===
-            # Get the list of company names
+            # === START: BUG FIX (from previous message) ===
             company_names_list = companies_df['name'].tolist()
-            
-            # Find the name of the user's current company using the comp_map
             current_comp_id = edit_data['company_id']
             current_comp_name = comp_map.get(current_comp_id)
-            
-            # Find the index of that name in the list for the selectbox
-            company_idx = 0 # Default to the first item
+            company_idx = 0 
             if current_comp_name in company_names_list:
                 company_idx = company_names_list.index(current_comp_name)
                 
@@ -485,10 +496,10 @@ elif page == "Admin Panel" and user[4] == "Admin":
 elif page == "Audit Trail" and user[4] == "Admin":
     st.markdown("## Audit Trail")
     trail = pd.read_sql("SELECT timestamp, user_email, action, details FROM audit_trail ORDER BY timestamp DESC", conn)
+    
+    # === SYNTAX FIX 9 ===
     for _, row in trail.iterrows():
         with st.expander(f"{row['timestamp']} – {row['user_email']} – {row['action']}"):
             st.write(row['details'] or "—")
 # === FOOTER ===
 st.markdown("---\n© 2025 Joval Wines | jovalwines.com.au")
-
-
