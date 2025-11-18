@@ -327,17 +327,20 @@ elif page == "Log a new Risk":
             else:
                 score = calculate_risk_score(likelihood, impact)
                 
-                # Use a fresh, local connection for writing to the database
+                # === FIX: Use a fresh, local connection for writing to the database ===
                 conn_local = get_db()
                 c_local = conn_local.cursor()
+                
                 c_local.execute("""INSERT INTO risks
                              (company_id, title, description, category, likelihood, impact, status,
                               submitted_by, submitted_date, risk_score, approver_email, workflow_step)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                           (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
                            user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval"))
+                           
                 conn_local.commit()
                 conn_local.close()
+                # === END FIX ===
                 
                 log_action(user[2], "RISK_SUBMITTED", title)
                 send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
