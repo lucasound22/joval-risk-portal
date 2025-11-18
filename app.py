@@ -122,7 +122,7 @@ def generate_pdf_report(title, content):
     styles = getSampleStyleSheet()
     story = []
     try:
-        with urllib.request.urlopen("https://jovalwines.com.au/wp-content/uploads/2020/06/Joval-Wines-Logo.png") as r:
+        with urllib.request.urlopen("https.jovalwines.com.au/wp-content/uploads/2020/06/Joval-Wines-Logo.png") as r:
             img = Image(BytesIO(r.read()), width=2*inch, height=0.6*inch)
             story.append(img)
     except:
@@ -274,46 +274,63 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         st.markdown("### Evidence")
         for _, e in evidence.iterrows():
             st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
+            
 # === LOG A NEW RISK ===
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
     companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
     company_options = companies_df['name'].tolist()
+
+    # === START: BUG FIX (DYNAMIC DROPDOWNS) ===
+    # 1. Move company selection OUTSIDE the form.
+    # When this selectbox is changed, Streamlit reruns the *entire script*.
+    st.markdown("### 1. Select Company")
+    selected_company_name = st.selectbox("Company *", company_options, key='company_selector')
+    
+    # 2. Get the ID and approvers based on the selection.
+    # On the rerun, selected_company_name will have the new value.
+    selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
+    approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
+    approver_list = approvers_df['email'].tolist()
+
+    st.markdown("---") 
+    st.markdown("### 2. Enter Risk Details")
+
+    # 3. Create the form.
     with st.form("new_risk"):
         title = st.text_input("Title *")
         desc = st.text_area("Description *")
         category = st.selectbox("Category *", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
         likelihood = st.selectbox("Likelihood *", ["Low", "Medium", "High"])
         impact = st.selectbox("Impact *", ["Low", "Medium", "High"])
-        selected_company_name = st.selectbox("Company *", company_options)
-        selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
         
-        approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
-        approver_list = approvers_df['email'].tolist()
-        
-        # === START: BUG FIX & LOGIC IMPROVEMENT ===
+        # 4. The approver list is now dynamically correct.
         submit_disabled = False
         submit_help = "Click to submit the risk."
+        
+        # Add a disabled text input to show which company is selected
+        st.text_input("Selected Company (Locked)", selected_company_name, disabled=True)
         
         if approver_list:
             assigned_approver = st.selectbox("Assign to Approver *", approver_list)
         else:
-            st.error("Cannot submit risk: No approvers are assigned to this company. Please add one in the Admin Panel.")
-            assigned_approver = None # This will be None
+            st.error(f"Cannot submit risk: No approvers found for '{selected_company_name}'. Please add one in the Admin Panel.")
+            assigned_approver = None 
             submit_disabled = True
-            submit_help = "You must assign an approver to this company before logging a risk."
+            submit_help = f"No approvers available for {selected_company_name}."
 
         submitted = st.form_submit_button("Submit Risk", disabled=submit_disabled, help=submit_help)
         
         if submitted:
-            # Check for title and desc. Approver is handled by the disabled logic.
+            # 5. Check fields.
             if not all([title, desc]):
                 st.error("Please fill all required fields (Title and Description).")
-            # This 'elif' is a safety net, but should be unreachable if button is disabled
-            elif not assigned_approver: 
+            # This check is now redundant due to the disabled button, but good for safety
+            elif not assigned_approver:
                 st.error("An approver must be selected.")
             else:
                 score = calculate_risk_score(likelihood, impact)
+                # selected_company_id and assigned_approver are now correct.
                 c.execute("""INSERT INTO risks
                              (company_id, title, description, category, likelihood, impact, status,
                               submitted_by, submitted_date, risk_score, approver_email, workflow_step)
@@ -324,8 +341,9 @@ elif page == "Log a new Risk":
                 log_action(user[2], "RISK_SUBMITTED", title)
                 send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
                 st.success("Risk submitted successfully!")
+                # Rerun to clear the form state
                 st.rerun()
-        # === END: BUG FIX ===
+    # === END: BUG FIX ===
 
 # === EVIDENCE VAULT ===
 elif page == "Evidence Vault":
