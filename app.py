@@ -1,4 +1,4 @@
-# app.py – JOVAL WINES RISK PORTAL v37.0 – FINAL TRANSACTIONAL DB FIX
+# app.py – JOVAL WINES RISK PORTAL v38.0 – FINAL TRANSACTIONAL DB FIX
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -18,7 +18,6 @@ import urllib.request
 import os 
 
 # === EMAIL CONFIG ===
-# ... (Configuration unchanged) ...
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "joval.risk.portal@gmail.com"
@@ -37,7 +36,9 @@ def send_email(to_email, subject, body):
         server.send_message(msg)
         server.quit()
     except Exception as e:
-        st.warning(f"Email failed: {e}")
+        # In a Streamlit Cloud environment, this prints to the logs
+        print(f"ERROR: Email failed for {to_email}: {e}")
+        st.warning(f"Email failed to send: {e}")
 
 # === DATABASE SETUP (STABLE & CACHED) ===
 @st.cache_resource
@@ -47,7 +48,7 @@ def get_db():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     c = conn.cursor()
     
-    # --- Initialization Logic ---
+    # --- Initialization Logic (Ensures all tables/defaults exist) ---
     c.execute("""CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
     c.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, email TEXT UNIQUE, password TEXT, role TEXT, company_id INTEGER)""")
     c.execute("""CREATE TABLE IF NOT EXISTS risks (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER, title TEXT, description TEXT, category TEXT, likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, risk_score INTEGER, approver_email TEXT, approver_notes TEXT, approved_by TEXT, approved_date TEXT, workflow_step TEXT)""")
@@ -57,8 +58,8 @@ def get_db():
     c.execute("""CREATE TABLE IF NOT EXISTS vendor_questions (id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT, company_id INTEGER)""")
     c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
+    # Attempt to add columns for backwards compatibility
     for sql in [
-        "ALTER TABLE evidence ADD COLUMN file_data BLOB",
         "ALTER TABLE risks ADD COLUMN approved_by TEXT",
         "ALTER TABLE risks ADD COLUMN approved_date TEXT",
         "ALTER TABLE risks ADD COLUMN workflow_step TEXT"
@@ -66,25 +67,16 @@ def get_db():
         try: c.execute(sql)
         except sqlite3.OperationalError: pass
         
+    # Seed data
     companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
     c.executemany("INSERT OR IGNORE INTO companies (name) VALUES (?)", [(n,) for n in companies])
     hashed = hashlib.sha256("Joval2025".encode()).hexdigest()
     
     for i, comp in enumerate(companies, 1):
         admin_email = f"admin@{comp.lower().replace(' ', '')}.com.au"
+        # Ensure Admin user exists with the correct password/role
         c.execute("INSERT OR REPLACE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", ("admin", admin_email, hashed, "Admin", i))
-        approver_email = f"approver@{comp.lower().replace(' ', '')}.com.au"
-        c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", (f"approver_{comp.lower().replace(' ', '')}", approver_email, hashed, "Approver", i))
 
-    risks = [
-        (1, "Phishing Campaign", "Finance targeted via email", "DETECT", "High", "High", "Pending Approval", "admin@jovalwines.com.au", "2025-10-01", 9, "approver@jovalwines.com.au", "", None, None, "awaiting_approval"),
-    ]
-    c.executemany("""INSERT OR IGNORE INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score, approver_email, approver_notes, approved_by, approved_date, workflow_step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", risks)
-
-    c.execute("INSERT OR IGNORE INTO vendors (name, contact_email, risk_level, last_assessment, company_id) VALUES (?, ?, ?, ?, ?)", ("Reefer Tech", "security@reefertech.com", "High", "2025-08-20", 1))
-    nist_questions = ["Does the vendor have a formal cybersecurity program aligned with NIST CSF?", "Is there a designated CISO or security officer?", "Are employees trained annually on cybersecurity awareness?"]
-    c.executemany("INSERT OR IGNORE INTO vendor_questions (question, company_id) VALUES (?, ?)", [(q, 1) for q in nist_questions])
-    
     conn.commit()
     return conn
 
@@ -96,10 +88,12 @@ def db_write(sql, params):
     try:
         c.execute(sql, params)
         conn.commit()
+        print(f"DB_WRITE SUCCESS: {sql} | Rows affected: {c.rowcount}") # Debug log
         return c.rowcount
     except Exception as e:
-        # Rollback in case of error
         conn.rollback()
+        # Log to console for debugging on Streamlit Cloud
+        print(f"DB_WRITE ERROR: {e} | SQL: {sql} | Params: {params}")
         st.error(f"Database Write Error: {e}")
         return 0
 
@@ -116,9 +110,9 @@ def get_risk_color(score):
 def log_action(user_email, action, details=""):
     sql = "INSERT INTO audit_trail (timestamp, user_email, action, details) VALUES (?, ?, ?, ?)"
     params = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_email, action, details)
-    db_write(sql, params) # Use the transactional utility
+    db_write(sql, params) 
 
-# ... (PDF Report generation function is unchanged) ...
+# ... (PDF Report generation function remains unchanged) ...
 def generate_pdf_report(title, content):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.2*inch)
@@ -175,7 +169,6 @@ if "user" not in st.session_state:
         password = st.text_input("Password", type="password")
         if st.button("Login"):
             hashed = hashlib.sha256(password.encode()).hexdigest()
-            # Use a new cursor for this read operation
             c_login = conn.cursor()
             c_login.execute("SELECT * FROM users WHERE username=? AND password=?", (username, hashed))
             user = c_login.fetchone()
@@ -190,7 +183,7 @@ if "user" not in st.session_state:
 user = st.session_state.user
 company_id = user[5]
 
-# Use a new cursor for read operations
+# Fetch user/company details
 c_read = conn.cursor()
 c_read.execute("SELECT name FROM companies WHERE id=?", (company_id,))
 company_name = c_read.fetchone()[0]
@@ -211,12 +204,14 @@ with st.sidebar:
             st.rerun()
 page = st.session_state.get("page", "Dashboard")
 
-# === DASHBOARD ===
+# === DASHBOARD (VERIFYING READ) ===
 if page == "Dashboard":
     st.markdown("## Dashboard")
-    # Read operations use the cached connection
-    high_risks = pd.read_sql("SELECT COUNT(*) FROM risks WHERE risk_score >= 7 AND company_id=?", conn, params=(company_id,)).iloc[0,0]
-    total_risks = pd.read_sql("SELECT COUNT(*) FROM risks WHERE company_id=?", conn, params=(company_id,)).iloc[0,0]
+    # All read operations use the stable connection object 'conn'
+    risks = pd.read_sql("SELECT id, title, status, risk_score, description, approved_by FROM risks WHERE company_id=?", conn, params=(company_id,))
+
+    high_risks = len(risks[risks['risk_score'] >= 7])
+    total_risks = len(risks)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -224,17 +219,90 @@ if page == "Dashboard":
     with col2:
         st.markdown(f'<div class="metric-card"><h2>{total_risks}</h2><p>Total Risks</p></div>', unsafe_allow_html=True)
         
-    risks = pd.read_sql("SELECT id, title, status, risk_score, description, approved_by FROM risks WHERE company_id=?", conn, params=(company_id,))
+    if risks.empty:
+        st.info("No risks logged for this company yet.")
+    else:
+        for _, r in risks.iterrows():
+            color = get_risk_color(r['risk_score'])
+            bg = "#ffe6e6" if color == "red" else "#fff4e6" if color == "orange" else "#e6f7e6"
+            approval = f"<span class='approval-badge'>Approved by {r['approved_by']}</span>" if r['approved_by'] else ""
+            
+            # The dashboard relies on this list to show new risks
+            if st.button(f"**{r['title']}** – Score: {r['risk_score']} | {r['status']}", key=f"risk*{r['id']}"):
+                st.session_state.selected_risk = r['id']
+                st.session_state.page = "Risk Detail"
+                st.rerun()
+            st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}... {approval}</small></div>', unsafe_allow_html=True)
+
+# === LOG A NEW RISK (TRANSACTIONAL INSERT) ===
+elif page == "Log a new Risk":
+    st.markdown("## Log a New Risk")
+    companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
+    company_options = companies_df['name'].tolist()
+
+    # === DYNAMIC DROPDOWNS ===
+    st.markdown("### 1. Select Company")
+    # Default to the user's company
+    default_company_idx = company_options.index(company_name) if company_name in company_options else 0
+    selected_company_name = st.selectbox("Company *", company_options, index=default_company_idx, key='company_selector')
     
-    for _, r in risks.iterrows():
-        color = get_risk_color(r['risk_score'])
-        bg = "#ffe6e6" if color == "red" else "#fff4e6" if color == "orange" else "#e6f7e6"
-        approval = f"<span class='approval-badge'>Approved by {r['approved_by']}</span>" if r['approved_by'] else ""
-        if st.button(f"**{r['title']}** – Score: {r['risk_score']} | {r['status']}", key=f"risk*{r['id']}"):
-            st.session_state.selected_risk = r['id']
-            st.session_state.page = "Risk Detail"
-            st.rerun()
-        st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}... {approval}</small></div>', unsafe_allow_html=True)
+    selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
+    approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
+    approver_list = approvers_df['email'].tolist()
+
+    st.markdown("---") 
+    st.markdown("### 2. Enter Risk Details")
+
+    with st.form("new_risk"):
+        title = st.text_input("Title *")
+        desc = st.text_area("Description *")
+        category = st.selectbox("Category *", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
+        likelihood = st.selectbox("Likelihood *", ["Low", "Medium", "High"])
+        impact = st.selectbox("Impact *", ["Low", "Medium", "High"])
+        
+        submit_disabled = False
+        submit_help = "Click to submit the risk."
+        
+        if approver_list:
+            assigned_approver = st.selectbox("Assign to Approver *", approver_list)
+        else:
+            st.error(f"Cannot submit risk: No approvers found for '{selected_company_name}'. Please add one in the Admin Panel.")
+            assigned_approver = None 
+            submit_disabled = True
+            submit_help = f"No approvers available for {selected_company_name}."
+
+        submitted = st.form_submit_button("Submit Risk", disabled=submit_disabled, help=submit_help)
+        
+        if submitted:
+            if not all([title, desc]):
+                st.error("Please fill all required fields (Title and Description).")
+            elif not assigned_approver:
+                st.error("An approver must be selected.")
+            else:
+                score = calculate_risk_score(likelihood, impact)
+                
+                # Use the dedicated transactional utility for INSERT
+                sql = """INSERT INTO risks
+                             (company_id, title, description, category, likelihood, impact, status,
+                              submitted_by, submitted_date, risk_score, approver_email, workflow_step)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                params = (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
+                        user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval")
+                               
+                rows_inserted = db_write(sql, params)
+                
+                if rows_inserted > 0:
+                    log_action(user[2], "RISK_SUBMITTED", title)
+                    send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
+                    st.success("Risk submitted successfully and **saved to DB**! Rerunning to refresh dashboard...")
+                else:
+                    # db_write handles the specific error, but this shows if insertion failed generally
+                    st.error("Risk submission failed. **Zero rows created in the database.**")
+                    
+                # Explicit rerun ensures the app reloads and attempts to read the committed data
+                st.rerun()
+
+# ... (The rest of the application code pages use db_write or conn for reads, which should now be stable) ...
 
 # === MY APPROVALS ===
 elif page == "My Approvals" and user[4] == "Approver":
@@ -291,71 +359,6 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         for _, e in evidence.iterrows():
             st.write(f"**{e['file_name']}** – {e['upload_date']} by {e['uploaded_by']}")
             
-# === LOG A NEW RISK (HIGHLY TRANSACTIONAL) ===
-elif page == "Log a new Risk":
-    st.markdown("## Log a New Risk")
-    companies_df = pd.read_sql("SELECT id, name FROM companies", conn)
-    company_options = companies_df['name'].tolist()
-
-    # === DYNAMIC DROPDOWNS ===
-    st.markdown("### 1. Select Company")
-    selected_company_name = st.selectbox("Company *", company_options, key='company_selector')
-    
-    selected_company_id = companies_df[companies_df['name'] == selected_company_name].iloc[0]['id']
-    approvers_df = pd.read_sql("SELECT email FROM users WHERE role='Approver' AND company_id=?", conn, params=(selected_company_id,))
-    approver_list = approvers_df['email'].tolist()
-
-    st.markdown("---") 
-    st.markdown("### 2. Enter Risk Details")
-
-    with st.form("new_risk"):
-        title = st.text_input("Title *")
-        desc = st.text_area("Description *")
-        category = st.selectbox("Category *", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"])
-        likelihood = st.selectbox("Likelihood *", ["Low", "Medium", "High"])
-        impact = st.selectbox("Impact *", ["Low", "Medium", "High"])
-        
-        submit_disabled = False
-        submit_help = "Click to submit the risk."
-        
-        if approver_list:
-            assigned_approver = st.selectbox("Assign to Approver *", approver_list)
-        else:
-            st.error(f"Cannot submit risk: No approvers found for '{selected_company_name}'. Please add one in the Admin Panel.")
-            assigned_approver = None 
-            submit_disabled = True
-            submit_help = f"No approvers available for {selected_company_name}."
-
-        submitted = st.form_submit_button("Submit Risk", disabled=submit_disabled, help=submit_help)
-        
-        if submitted:
-            if not all([title, desc]):
-                st.error("Please fill all required fields (Title and Description).")
-            elif not assigned_approver:
-                st.error("An approver must be selected.")
-            else:
-                score = calculate_risk_score(likelihood, impact)
-                
-                # Use the dedicated transactional utility for INSERT
-                sql = """INSERT INTO risks
-                             (company_id, title, description, category, likelihood, impact, status,
-                              submitted_by, submitted_date, risk_score, approver_email, workflow_step)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-                params = (selected_company_id, title, desc, category, likelihood, impact, "Pending Approval",
-                        user[2], datetime.now().strftime("%Y-%m-%d"), score, assigned_approver, "awaiting_approval")
-                               
-                rows_inserted = db_write(sql, params)
-                
-                if rows_inserted > 0:
-                    log_action(user[2], "RISK_SUBMITTED", title)
-                    send_email(assigned_approver, "New Risk Submission", f"Title: {title}\nSubmitted by: {user[2]}\nCompany: {selected_company_name}")
-                    st.success("Risk submitted successfully and saved to DB! Check the Dashboard/My Approvals.")
-                else:
-                    # db_write handles the error message, but we display a generic fail message too
-                    st.error("Risk submission failed. Check the error message above.")
-                    
-                st.rerun()
-
 # === EVIDENCE VAULT ===
 elif page == "Evidence Vault":
     st.markdown("## Evidence Vault")
@@ -452,7 +455,8 @@ elif page == "Vendor Management":
 # === REPORTS ===
 elif page == "Reports":
     st.markdown("## Reports")
-    # ... (Reports section remains unchanged as it only uses read operations) ...
+    
+    # ... (Reports code unchanged) ...
     nist_categories = ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"]
     
     tab1, tab2 = st.tabs(["NIST & Compliance Reports", "Custom Report Builder"])
