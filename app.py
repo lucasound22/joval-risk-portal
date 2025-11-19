@@ -35,7 +35,7 @@ SENDER_EMAIL = "joval.risk.portal@gmail.com"
 SENDER_PASSWORD = "your_app_password_here" 
 
 # ==========================================
-# 2. DATABASE ENGINE (Direct Connection)
+# 2. DATABASE ENGINE (Direct Connection - STABLE)
 # ==========================================
 def get_connection():
     return sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -51,7 +51,6 @@ def run_query(query, params=None, is_write=False):
         else:
             return pd.read_sql(query, conn, params=params)
     except Exception as e:
-        # NOTE: Do not use st.error here, as it can be called outside of st.
         print(f"Database Error: {e}")
         return 0 if is_write else pd.DataFrame()
     finally:
@@ -65,7 +64,7 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)""")
     c.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, email TEXT UNIQUE, password TEXT, role TEXT, company_id INTEGER)""")
     
-    # Risks Table with Enterprise Columns
+    # Risks Table with Enterprise Columns (remediation, jira)
     c.execute("""CREATE TABLE IF NOT EXISTS risks (
         id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER, title TEXT, description TEXT, 
         category TEXT, likelihood TEXT, impact TEXT, status TEXT, submitted_by TEXT, submitted_date TEXT, 
@@ -75,7 +74,7 @@ def init_db():
     
     c.execute("""CREATE TABLE IF NOT EXISTS evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, risk_id INTEGER, company_id INTEGER, file_name TEXT, upload_date TEXT, uploaded_by TEXT, file_data BLOB)""")
     
-    # Vendor Tables with Scoring
+    # Vendor Tables with Scoring (vendor_score, weight)
     c.execute("""CREATE TABLE IF NOT EXISTS vendors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, contact_email TEXT, risk_level TEXT, last_assessment_date TEXT, company_id INTEGER, vendor_score INTEGER)""")
     c.execute("""CREATE TABLE IF NOT EXISTS vendor_questionnaire (id INTEGER PRIMARY KEY AUTOINCREMENT, vendor_id INTEGER, question_id INTEGER, answer TEXT, answered_date TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS vendor_questions (id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT, weight INTEGER, company_id INTEGER)""")
@@ -90,7 +89,7 @@ def init_db():
         try: c.execute(f"ALTER TABLE {t} ADD COLUMN {c_name} {d_type}")
         except: pass
 
-    # Seed Data
+    # Seed Data (Admin/Approvers)
     c.execute("SELECT count(*) FROM companies")
     if c.fetchone()[0] == 0:
         companies = ["Joval Wines", "Joval Family Wines", "BNV", "BAM"]
@@ -122,7 +121,7 @@ else:
     init_db()
 
 # ==========================================
-# 3. HELPERS (Including Restored Audit Logging)
+# 3. HELPERS (Including Audit Logging and AI)
 # ==========================================
 def calculate_risk_score(likelihood, impact):
     scores = {"Low": 1, "Medium": 2, "High": 3}
@@ -133,13 +132,13 @@ def get_risk_color(score):
     elif score >= 4: return "orange"
     else: return "green"
 
-# --- RESTORED: AUDIT TRAIL LOGGING ---
+# --- AUDIT TRAIL LOGGING ---
 def log_action(user_email, action, details=""):
     run_query("INSERT INTO audit_trail (timestamp, user_email, action, details) VALUES (?, ?, ?, ?)", 
               (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_email, action, details), is_write=True)
 
+# --- AI AUTO-CLASSIFY (Simulation) ---
 def ai_classify_risk(text):
-    """Simulated AI Classifier"""
     text = text.lower()
     if any(x in text for x in ["phish", "email", "scam"]): return "DETECT", "High", "High"
     if any(x in text for x in ["malware", "virus", "patch"]): return "PROTECT", "Medium", "High"
@@ -279,7 +278,7 @@ if page == "Dashboard":
             st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"]}</small></div>', unsafe_allow_html=True)
 
 # ==========================================
-# 8. LOG RISK
+# 8. LOG RISK (with AI)
 # ==========================================
 elif page == "Log a new Risk":
     st.markdown("## Log a New Risk")
@@ -323,13 +322,13 @@ elif page == "Log a new Risk":
                 score = calculate_risk_score(lik, imp)
                 run_query("""INSERT INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score, approver_email, workflow_step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (c_id, title, desc, cat, lik, imp, "Pending Approval", user[2], datetime.now().strftime("%Y-%m-%d"), score, approver, "awaiting"), is_write=True)
                 st.success("Risk Logged!")
-                log_action(user[2], "RISK SUBMITTED", title) # --- AUDIT LOGGING ---
+                log_action(user[2], "RISK SUBMITTED", title)
                 send_email(approver, "New Risk", f"Title: {title}")
                 st.session_state.page = "Dashboard"
                 st.rerun()
 
 # ==========================================
-# 9. RISK DETAIL
+# 9. RISK DETAIL (with Remediation & Jira)
 # ==========================================
 elif page == "Risk Detail" and "selected_risk" in st.session_state:
     rid = st.session_state.selected_risk
@@ -343,7 +342,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
             time.sleep(1)
             ticket = f"JIRA-{random.randint(1000,9999)}"
             run_query("UPDATE risks SET jira_ticket_id=? WHERE id=?", (ticket, rid), is_write=True)
-            log_action(user[2], "JIRA SYNC", f"Risk {rid} linked to {ticket}") # --- AUDIT LOGGING ---
+            log_action(user[2], "JIRA SYNC", f"Risk {rid} linked to {ticket}")
             st.success(f"Created {ticket}")
             st.rerun()
     else:
@@ -367,18 +366,18 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
             if st.form_submit_button("Save Changes"):
                 new_score = calculate_risk_score(new_lik, new_imp)
                 run_query("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, status=?, risk_score=?, approver_notes=? WHERE id=?""", (new_title, new_desc, new_cat, new_lik, new_imp, new_status, new_score, new_notes, rid), is_write=True)
-                log_action(user[2], "RISK UPDATED", f"Risk {rid}. Status: {new_status}") # --- AUDIT LOGGING ---
+                log_action(user[2], "RISK UPDATED", f"Risk {rid}. Status: {new_status}")
                 st.success("Updated")
                 st.rerun()
 
     with t2:
         with st.form("rem"):
-            plan = st.text_area("Plan", risk['remediation_plan'] or "")
+            plan = st.text_area("Action Plan", risk['remediation_plan'] or "")
             own = st.text_input("Owner", risk['remediation_owner'] or "")
             date = st.text_input("Target Date (YYYY-MM-DD)", risk['remediation_date'] or "")
             if st.form_submit_button("Update Plan"):
                 run_query("UPDATE risks SET remediation_plan=?, remediation_owner=?, remediation_date=? WHERE id=?", (plan, own, date, rid), is_write=True)
-                log_action(user[2], "REMEDIATION PLAN", f"Risk {rid}. Owner: {own}") # --- AUDIT LOGGING ---
+                log_action(user[2], "REMEDIATION PLAN", f"Risk {rid}. Owner: {own}")
                 st.success("Updated")
                 st.rerun()
 
@@ -386,7 +385,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         uploaded = st.file_uploader("Upload")
         if uploaded:
             run_query("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by, file_data) VALUES (?, ?, ?, ?, ?, ?)", (rid, risk['company_id'], uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1], uploaded.getvalue()), is_write=True)
-            log_action(user[2], "EVIDENCE UPLOADED", f"Risk {rid}. File: {uploaded.name}") # --- AUDIT LOGGING ---
+            log_action(user[2], "EVIDENCE UPLOADED", f"Risk {rid}. File: {uploaded.name}")
             st.rerun()
         files = run_query("SELECT * FROM evidence WHERE risk_id=?", (rid,))
         for _, f in files.iterrows():
@@ -398,7 +397,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         st.rerun()
 
 # ==========================================
-# 10. VENDOR MANAGEMENT
+# 10. VENDOR MANAGEMENT (with Scoring)
 # ==========================================
 elif page == "Vendor Management":
     st.markdown("## Vendor Management")
@@ -411,7 +410,7 @@ elif page == "Vendor Management":
                 e = st.text_input("Email")
                 if st.form_submit_button("Add"):
                     run_query("INSERT INTO vendors (name, contact_email, risk_level, company_id, vendor_score) VALUES (?, ?, ?, ?, ?)", (n, e, "Pending", user[5], 0), is_write=True)
-                    log_action(user[2], "VENDOR ADDED", n) # --- AUDIT LOGGING ---
+                    log_action(user[2], "VENDOR ADDED", n)
                     st.rerun()
         vendors = run_query("SELECT * FROM vendors WHERE company_id=?", (user[5],))
         st.dataframe(vendors[['name', 'contact_email', 'risk_level', 'vendor_score']])
@@ -424,7 +423,7 @@ elif page == "Vendor Management":
             for _, r in edited.iterrows():
                 if r['question']:
                     run_query("INSERT INTO vendor_questions (question, weight, company_id) VALUES (?, ?, ?)", (r['question'], r['weight'], 1), is_write=True)
-            log_action(user[2], "VENDOR TEMPLATE EDITED") # --- AUDIT LOGGING ---
+            log_action(user[2], "VENDOR TEMPLATE EDITED")
             st.success("Saved")
             st.rerun()
 
@@ -444,11 +443,11 @@ elif page == "Vendor Management":
                 if st.form_submit_button("Calculate"):
                     lvl = "High" if score < (max_s * 0.5) else "Low"
                     run_query("UPDATE vendors SET vendor_score=?, risk_level=? WHERE id=?", (score, lvl, vid), is_write=True)
-                    log_action(user[2], "VENDOR SCORED", f"Vendor {sel_v}: {score}/{max_s}") # --- AUDIT LOGGING ---
+                    log_action(user[2], "VENDOR SCORED", f"Vendor {sel_v}: {score}/{max_s}")
                     st.success(f"Score: {score}/{max_s}. Level: {lvl}")
 
 # ==========================================
-# 11. REPORTS (RESTORED)
+# 11. REPORTS (Full Detail Restored)
 # ==========================================
 elif page == "Reports":
     st.markdown("## Reports")
@@ -495,7 +494,7 @@ elif page == "Reports":
             st.download_button("Download PDF", pdf, "custom.pdf")
 
 # ==========================================
-# 12. ADMIN & AUDIT
+# 12. ADMIN & AUDIT (Full Detail Restored)
 # ==========================================
 elif page == "Admin Panel" and user[4] == "Admin":
     st.markdown("## Admin Panel")
@@ -511,12 +510,12 @@ elif page == "Admin Panel" and user[4] == "Admin":
                 cid = comps[comps['name'] == c].iloc[0]['id']
                 h = hashlib.sha256(p.encode()).hexdigest()
                 run_query("INSERT INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", (u, e, h, r, cid), is_write=True)
-                log_action(user[2], "USER CREATED", u) # --- AUDIT LOGGING ---
+                log_action(user[2], "USER CREATED", u)
                 st.success("Created")
     
     users = run_query("SELECT id, username, email, role, company_id FROM users")
     
-    # Edit Logic
+    # Edit Logic (Restored)
     for _, row in users.iterrows():
         c1, c2 = st.columns([4,1])
         c1.text(f"{row['username']} ({row['role']})")
@@ -532,7 +531,7 @@ elif page == "Admin Panel" and user[4] == "Admin":
             new_r = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(ed['role']))
             if st.form_submit_button("Save"):
                 run_query("UPDATE users SET username=?, role=? WHERE id=?", (new_u, new_r, ed['id']), is_write=True)
-                log_action(user[2], "USER EDITED", f"ID {ed['id']} to {new_u} ({new_r})") # --- AUDIT LOGGING ---
+                log_action(user[2], "USER EDITED", f"ID {ed['id']} to {new_u} ({new_r})")
                 del st.session_state.edit_user
                 st.rerun()
 
