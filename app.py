@@ -17,6 +17,7 @@ from reportlab.lib.units import inch
 
 # Plotly for Charts
 import plotly.graph_objects as go
+import plotly.express as px
 
 # Email Imports
 from email.mime.text import MIMEText
@@ -88,7 +89,7 @@ def init_db():
         hashed = hashlib.sha256("Joval2025".encode()).hexdigest()
         
         for c_id, c_name in comp_rows:
-            # Create Admin (Only once generally, but per company logic here)
+            # Create Admin
             admin_email = f"admin@{c_name.lower().replace(' ', '')}.com.au"
             if c_name == "Joval Wines": # Main Admin
                  c.execute("INSERT OR IGNORE INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", 
@@ -106,7 +107,7 @@ def init_db():
 if not os.path.exists(DB_FILE):
     init_db()
 else:
-    init_db() # Run anyway to ensure schema
+    init_db() 
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -265,11 +266,14 @@ if page == "Dashboard":
             color = get_risk_color(r['risk_score'])
             bg = "#ffe6e6" if color == "red" else "#fff4e6" if color == "orange" else "#e6f7e6"
             
-            if st.button(f"{r['title']} (Score: {r['risk_score']}) - {r['status']}", key=f"r_{r['id']}"):
+            # FIXED: Show status in button text
+            btn_label = f"**{r['title']}** | Status: {r['status']} (Score: {r['risk_score']})"
+            
+            if st.button(btn_label, key=f"r_{r['id']}"):
                 st.session_state.selected_risk = r['id']
                 st.session_state.page = "Risk Detail"
                 st.rerun()
-            st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"]}</small></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="clickable-risk" style="background:{bg};"><small>{r["description"][:100]}...</small></div>', unsafe_allow_html=True)
 
 # ==========================================
 # 8. PAGE: LOG A NEW RISK
@@ -289,14 +293,13 @@ elif page == "Log a new Risk":
     
     approvers = run_query("SELECT email FROM users WHERE role='Approver' AND company_id=?", (c_id,))
     
-    # Fallback if no approver exists
+    # STRICT APPROVER LOGIC (No Fallback)
     if approvers.empty:
-        approver_list = ["admin@jovalwines.com.au"]
-        st.warning("No approvers found for this company. Defaulting to Admin.")
-    else:
-        approver_list = approvers['email'].tolist()
-        
-    approver = st.selectbox("Approver", approver_list)
+        st.error(f"🛑 STOP: No Approver is assigned to {c_name}. You cannot log a risk until an Admin creates an Approver for this company.")
+        st.stop()
+    
+    approver_list = approvers['email'].tolist()
+    approver = st.selectbox("Assign to Approver", approver_list)
     
     with st.form("risk_form"):
         title = st.text_input("Title")
@@ -325,7 +328,7 @@ elif page == "Log a new Risk":
                     st.error("Database Write Failed.")
 
 # ==========================================
-# 9. PAGE: RISK DETAIL
+# 9. PAGE: RISK DETAIL (FULL EDITING)
 # ==========================================
 elif page == "Risk Detail" and "selected_risk" in st.session_state:
     rid = st.session_state.selected_risk
@@ -333,13 +336,34 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
     
     if not risk_df.empty:
         risk = risk_df.iloc[0]
-        st.markdown(f"## Edit: {risk['title']}")
+        st.markdown(f"## Edit Risk: {risk['title']}")
+        
         with st.form("edit"):
-            new_status = st.selectbox("Status", ["Pending Approval", "Approved", "Rejected", "Mitigated"], index=["Pending Approval", "Approved", "Rejected", "Mitigated"].index(risk['status']))
-            new_notes = st.text_area("Notes", risk['approver_notes'] or "")
-            if st.form_submit_button("Save"):
-                run_query("UPDATE risks SET status=?, approver_notes=? WHERE id=?", (new_status, new_notes, rid), is_write=True)
-                st.success("Saved!")
+            col1, col2 = st.columns(2)
+            
+            # Full Fields for Editing
+            new_title = st.text_input("Title", risk['title'])
+            new_desc = st.text_area("Description", risk['description'])
+            
+            with col1:
+                new_cat = st.selectbox("Category", ["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"], index=["IDENTIFY", "PROTECT", "DETECT", "RESPOND", "RECOVER"].index(risk['category']))
+                new_lik = st.selectbox("Likelihood", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(risk['likelihood']))
+            
+            with col2:
+                new_imp = st.selectbox("Impact", ["Low", "Medium", "High"], index=["Low", "Medium", "High"].index(risk['impact']))
+                new_status = st.selectbox("Status", ["Pending Approval", "Approved", "Rejected", "Mitigated"], index=["Pending Approval", "Approved", "Rejected", "Mitigated"].index(risk['status']))
+            
+            new_notes = st.text_area("Approver Notes", risk['approver_notes'] or "")
+            
+            if st.form_submit_button("Save Changes"):
+                # Recalculate Score
+                new_score = calculate_risk_score(new_lik, new_imp)
+                
+                # Update All Fields
+                run_query("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, 
+                             status=?, risk_score=?, approver_notes=? WHERE id=?""", 
+                             (new_title, new_desc, new_cat, new_lik, new_imp, new_status, new_score, new_notes, rid), is_write=True)
+                st.success("Risk Updated Successfully!")
                 st.rerun()
         
         st.write("### Evidence Vault")
@@ -369,8 +393,6 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
 # ==========================================
 elif page == "Evidence Vault":
     st.markdown("## Evidence Vault")
-    # Show all files for the current view company context
-    # For admin, we might want to select company, but sticking to simple for stability:
     target_id = user[5]
     if user[4] == "Admin":
          comps = run_query("SELECT id, name FROM companies")
@@ -429,7 +451,8 @@ elif page == "Reports":
             else:
                 st.info("No data.")
 
-        t1, t2, t3, t4 = st.tabs(["Risk Heatmap", "Risk by Category", "High Risks", "Pending Risks"])
+        # FIXED: Added Approval Status Tab
+        t1, t2, t3, t4, t5 = st.tabs(["Risk Heatmap", "Risk by Category", "Approval Status", "High Risks", "Pending Risks"])
         
         with t1:
             risks_df = run_query("SELECT risk_score FROM risks WHERE company_id=?", (target_id,))
@@ -445,11 +468,19 @@ elif page == "Reports":
                 st.bar_chart(cat_df.set_index("category"))
 
         with t3:
+            status_df = run_query("SELECT status, count(*) as count FROM risks WHERE company_id=? GROUP BY status", (target_id,))
+            if not status_df.empty:
+                fig = px.pie(status_df, values='count', names='status', title='Risks by Approval Status')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No data to display.")
+
+        with t4:
             high_df = run_query("SELECT title, risk_score, status FROM risks WHERE company_id=? AND risk_score >= 7", (target_id,))
             st.dataframe(high_df)
             create_download_button(high_df, "High Risks", "high_risks")
 
-        with t4:
+        with t5:
             pend_df = run_query("SELECT title, submitted_by, submitted_date FROM risks WHERE company_id=? AND status='Pending Approval'", (target_id,))
             st.dataframe(pend_df)
             create_download_button(pend_df, "Pending Risks", "pending_risks")
@@ -556,8 +587,11 @@ elif page == "Audit Trail" and user[4] == "Admin":
 elif page == "My Approvals" and user[4] == "Approver":
     st.markdown("## My Approvals")
     pending = run_query("SELECT id, title, risk_score, submitted_by FROM risks WHERE approver_email=? AND status='Pending Approval'", (user[2],))
+    if pending.empty:
+        st.info("You have no pending approvals.")
     for _, r in pending.iterrows():
-        if st.button(f"Review: {r['title']}", key=f"app_{r['id']}"):
+        # FIXED: Visible status in approval list
+        if st.button(f"Review: {r['title']} (Pending)", key=f"app_{r['id']}"):
             st.session_state.selected_risk = r['id']
             st.session_state.page = "Risk Detail"
             st.rerun()
