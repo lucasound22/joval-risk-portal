@@ -51,7 +51,8 @@ def run_query(query, params=None, is_write=False):
         else:
             return pd.read_sql(query, conn, params=params)
     except Exception as e:
-        st.error(f"Database Error: {e}")
+        # NOTE: Do not use st.error here, as it can be called outside of st.
+        print(f"Database Error: {e}")
         return 0 if is_write else pd.DataFrame()
     finally:
         conn.close()
@@ -82,7 +83,9 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS audit_trail (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user_email TEXT, action TEXT, details TEXT)""")
 
     # Safe Column Migration (for existing DBs)
-    cols = [("risks", "remediation_plan", "TEXT"), ("risks", "jira_ticket_id", "TEXT"), ("vendors", "vendor_score", "INTEGER")]
+    cols = [("risks", "remediation_plan", "TEXT"), ("risks", "jira_ticket_id", "TEXT"), 
+            ("vendors", "vendor_score", "INTEGER"), ("risks", "remediation_owner", "TEXT"), 
+            ("risks", "remediation_date", "TEXT"), ("vendor_questions", "weight", "INTEGER")]
     for t, c_name, d_type in cols:
         try: c.execute(f"ALTER TABLE {t} ADD COLUMN {c_name} {d_type}")
         except: pass
@@ -119,7 +122,7 @@ else:
     init_db()
 
 # ==========================================
-# 3. HELPERS
+# 3. HELPERS (Including Restored Audit Logging)
 # ==========================================
 def calculate_risk_score(likelihood, impact):
     scores = {"Low": 1, "Medium": 2, "High": 3}
@@ -129,6 +132,11 @@ def get_risk_color(score):
     if score >= 7: return "red"
     elif score >= 4: return "orange"
     else: return "green"
+
+# --- RESTORED: AUDIT TRAIL LOGGING ---
+def log_action(user_email, action, details=""):
+    run_query("INSERT INTO audit_trail (timestamp, user_email, action, details) VALUES (?, ?, ?, ?)", 
+              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_email, action, details), is_write=True)
 
 def ai_classify_risk(text):
     """Simulated AI Classifier"""
@@ -203,6 +211,7 @@ if "user" not in st.session_state:
             users = run_query("SELECT * FROM users WHERE username=? AND password=?", (username, hashed))
             if not users.empty:
                 st.session_state.user = users.iloc[0].to_list()
+                log_action(st.session_state.user[2], "LOGIN", "User logged in successfully.")
                 st.rerun()
             else:
                 st.error("Invalid credentials")
@@ -314,6 +323,7 @@ elif page == "Log a new Risk":
                 score = calculate_risk_score(lik, imp)
                 run_query("""INSERT INTO risks (company_id, title, description, category, likelihood, impact, status, submitted_by, submitted_date, risk_score, approver_email, workflow_step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (c_id, title, desc, cat, lik, imp, "Pending Approval", user[2], datetime.now().strftime("%Y-%m-%d"), score, approver, "awaiting"), is_write=True)
                 st.success("Risk Logged!")
+                log_action(user[2], "RISK SUBMITTED", title) # --- AUDIT LOGGING ---
                 send_email(approver, "New Risk", f"Title: {title}")
                 st.session_state.page = "Dashboard"
                 st.rerun()
@@ -333,6 +343,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
             time.sleep(1)
             ticket = f"JIRA-{random.randint(1000,9999)}"
             run_query("UPDATE risks SET jira_ticket_id=? WHERE id=?", (ticket, rid), is_write=True)
+            log_action(user[2], "JIRA SYNC", f"Risk {rid} linked to {ticket}") # --- AUDIT LOGGING ---
             st.success(f"Created {ticket}")
             st.rerun()
     else:
@@ -356,6 +367,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
             if st.form_submit_button("Save Changes"):
                 new_score = calculate_risk_score(new_lik, new_imp)
                 run_query("""UPDATE risks SET title=?, description=?, category=?, likelihood=?, impact=?, status=?, risk_score=?, approver_notes=? WHERE id=?""", (new_title, new_desc, new_cat, new_lik, new_imp, new_status, new_score, new_notes, rid), is_write=True)
+                log_action(user[2], "RISK UPDATED", f"Risk {rid}. Status: {new_status}") # --- AUDIT LOGGING ---
                 st.success("Updated")
                 st.rerun()
 
@@ -363,9 +375,10 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         with st.form("rem"):
             plan = st.text_area("Plan", risk['remediation_plan'] or "")
             own = st.text_input("Owner", risk['remediation_owner'] or "")
-            date = st.text_input("Date", risk['remediation_date'] or "")
+            date = st.text_input("Target Date (YYYY-MM-DD)", risk['remediation_date'] or "")
             if st.form_submit_button("Update Plan"):
                 run_query("UPDATE risks SET remediation_plan=?, remediation_owner=?, remediation_date=? WHERE id=?", (plan, own, date, rid), is_write=True)
+                log_action(user[2], "REMEDIATION PLAN", f"Risk {rid}. Owner: {own}") # --- AUDIT LOGGING ---
                 st.success("Updated")
                 st.rerun()
 
@@ -373,6 +386,7 @@ elif page == "Risk Detail" and "selected_risk" in st.session_state:
         uploaded = st.file_uploader("Upload")
         if uploaded:
             run_query("INSERT INTO evidence (risk_id, company_id, file_name, upload_date, uploaded_by, file_data) VALUES (?, ?, ?, ?, ?, ?)", (rid, risk['company_id'], uploaded.name, datetime.now().strftime("%Y-%m-%d"), user[1], uploaded.getvalue()), is_write=True)
+            log_action(user[2], "EVIDENCE UPLOADED", f"Risk {rid}. File: {uploaded.name}") # --- AUDIT LOGGING ---
             st.rerun()
         files = run_query("SELECT * FROM evidence WHERE risk_id=?", (rid,))
         for _, f in files.iterrows():
@@ -397,6 +411,7 @@ elif page == "Vendor Management":
                 e = st.text_input("Email")
                 if st.form_submit_button("Add"):
                     run_query("INSERT INTO vendors (name, contact_email, risk_level, company_id, vendor_score) VALUES (?, ?, ?, ?, ?)", (n, e, "Pending", user[5], 0), is_write=True)
+                    log_action(user[2], "VENDOR ADDED", n) # --- AUDIT LOGGING ---
                     st.rerun()
         vendors = run_query("SELECT * FROM vendors WHERE company_id=?", (user[5],))
         st.dataframe(vendors[['name', 'contact_email', 'risk_level', 'vendor_score']])
@@ -409,6 +424,7 @@ elif page == "Vendor Management":
             for _, r in edited.iterrows():
                 if r['question']:
                     run_query("INSERT INTO vendor_questions (question, weight, company_id) VALUES (?, ?, ?)", (r['question'], r['weight'], 1), is_write=True)
+            log_action(user[2], "VENDOR TEMPLATE EDITED") # --- AUDIT LOGGING ---
             st.success("Saved")
             st.rerun()
 
@@ -428,6 +444,7 @@ elif page == "Vendor Management":
                 if st.form_submit_button("Calculate"):
                     lvl = "High" if score < (max_s * 0.5) else "Low"
                     run_query("UPDATE vendors SET vendor_score=?, risk_level=? WHERE id=?", (score, lvl, vid), is_write=True)
+                    log_action(user[2], "VENDOR SCORED", f"Vendor {sel_v}: {score}/{max_s}") # --- AUDIT LOGGING ---
                     st.success(f"Score: {score}/{max_s}. Level: {lvl}")
 
 # ==========================================
@@ -462,14 +479,14 @@ elif page == "Reports":
             st.plotly_chart(fig)
 
     with t4:
-        high_risks = run_query("SELECT title, risk_score, status FROM risks WHERE company_id=? AND risk_score >= 7", (target_id,))
+        high_risks = run_query("SELECT title, risk_score, status, remediation_owner FROM risks WHERE company_id=? AND risk_score >= 7", (target_id,))
         st.dataframe(high_risks)
         if not high_risks.empty:
             pdf = generate_pdf_report("High Risks", high_risks)
             st.download_button("Download PDF", pdf, "high_risks.pdf")
 
     with t5:
-        cols = st.multiselect("Columns", ["title", "category", "likelihood", "impact", "status", "submitted_by", "risk_score"], default=["title", "risk_score"])
+        cols = st.multiselect("Columns", ["title", "category", "likelihood", "impact", "status", "submitted_by", "risk_score", "remediation_owner", "jira_ticket_id"], default=["title", "risk_score"])
         if st.button("Generate"):
             col_str = ", ".join(cols)
             res = run_query(f"SELECT {col_str} FROM risks WHERE company_id=?", (target_id,))
@@ -494,6 +511,7 @@ elif page == "Admin Panel" and user[4] == "Admin":
                 cid = comps[comps['name'] == c].iloc[0]['id']
                 h = hashlib.sha256(p.encode()).hexdigest()
                 run_query("INSERT INTO users (username, email, password, role, company_id) VALUES (?, ?, ?, ?, ?)", (u, e, h, r, cid), is_write=True)
+                log_action(user[2], "USER CREATED", u) # --- AUDIT LOGGING ---
                 st.success("Created")
     
     users = run_query("SELECT id, username, email, role, company_id FROM users")
@@ -514,15 +532,25 @@ elif page == "Admin Panel" and user[4] == "Admin":
             new_r = st.selectbox("Role", ["Admin", "Approver", "User"], index=["Admin", "Approver", "User"].index(ed['role']))
             if st.form_submit_button("Save"):
                 run_query("UPDATE users SET username=?, role=? WHERE id=?", (new_u, new_r, ed['id']), is_write=True)
+                log_action(user[2], "USER EDITED", f"ID {ed['id']} to {new_u} ({new_r})") # --- AUDIT LOGGING ---
                 del st.session_state.edit_user
                 st.rerun()
 
 elif page == "Audit Trail" and user[4] == "Admin":
+    st.markdown("## Audit Trail")
     st.dataframe(run_query("SELECT * FROM audit_trail ORDER BY id DESC"))
+
+elif page == "Evidence Vault":
+    st.markdown("## Evidence Vault")
+    files = run_query("SELECT * FROM evidence WHERE company_id=?", (user[5],))
+    for _, f in files.iterrows():
+        st.download_button(f"Download {f['file_name']} (Uploaded by {f['uploaded_by']})", f['file_data'], f['file_name'], key=f"ev_{f['id']}")
 
 elif page == "My Approvals":
     st.markdown("## Approvals")
     pend = run_query("SELECT id, title FROM risks WHERE approver_email=? AND status='Pending Approval'", (user[2],))
+    if pend.empty:
+        st.info("You have no pending approvals.")
     for _, r in pend.iterrows():
         if st.button(f"Review {r['title']}", key=r['id']):
             st.session_state.selected_risk = r['id']
